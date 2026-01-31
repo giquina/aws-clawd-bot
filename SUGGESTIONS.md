@@ -3,34 +3,32 @@
 ## Overview
 This document captures ideas for improving ClawdBot beyond the core implementation. Ideas range from quick wins to ambitious future features.
 
+**Last Updated:** 2026-01-31 (v2.0 Release)
+
+---
+
+## ✅ COMPLETED in v2.0
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| AI Code Writing | ✅ Done | `coder` skill - fix issues, edit files, create PRs |
+| GitHub Actions | ✅ Done | `actions` skill - list/trigger workflows |
+| Code Review | ✅ Done | `review` skill - AI review for PRs and files |
+| Repository Stats | ✅ Done | `stats` skill - contributors, activity, languages |
+| Read File Contents | ✅ Done | `read file <repo> <path>` in github skill |
+| Search Code | ✅ Done | `search <repo> <query>` in github skill |
+| View PR Details | ✅ Done | `view pr <repo> #<n>` with diff summary |
+| 24/7 AWS Deployment | ✅ Done | Running on EC2 with PM2 |
+| Help Command | ✅ Done | Comprehensive help with skill grouping |
+| Better Welcome | ✅ Done | Time-aware greeting with capabilities |
+
 ---
 
 ## Quick Wins (< 1 hour each)
 
-### 1. Better Welcome Message
-**Current:** Generic greeting
-**Improved:**
-```
-Hi! 👋 I'm ClawdBot, your AI coding assistant.
+### 1. ~~Better Welcome Message~~ ✅ DONE
 
-I can help you:
-• 🐛 Fix bugs and issues
-• ✨ Write new features
-• 👀 Review code/PRs
-• 💡 Answer coding questions
-• 📊 Analyze repositories
-
-COMMANDS:
-• status - Check my health
-• list repos - See your repos
-• analyze [repo] - Analyze a repo
-• help - Full command list
-
-What would you like help with?
-```
-
-### 2. `help` Command
-Add a comprehensive help command showing all available commands grouped by category.
+### 2. ~~`help` Command~~ ✅ DONE
 
 ### 3. Conversation Context Window
 Show user how many messages are in context:
@@ -358,13 +356,49 @@ Occasionally share helpful tips:
 
 ---
 
-## Priority Matrix
+## Priority Matrix (Updated for v2.0)
 
 | Effort | High Impact | Low Impact |
 |--------|-------------|------------|
-| **Low** | Help command, Better errors, Emoji signature | Streak tracker, Tips |
-| **Medium** | Telegram, GitHub webhooks, Overnight queue | Achievements, Personality modes |
+| **Low** | ~~Help command~~ ✅, Better errors, Emoji signature | Streak tracker, Tips |
+| **Medium** | Telegram, GitHub webhooks (real-time), Overnight queue | Achievements, Personality modes |
 | **High** | MCP integration, Visual dashboard, Agent delegation | Voice support, Personal CRM |
+
+---
+
+## 🎯 RECOMMENDED NEXT STEPS
+
+Based on current v2.0 capabilities, here are the highest-value additions:
+
+### 1. **Overnight Work Queue** (High Value)
+Let the bot work on tasks while you sleep:
+```
+User: tonight, fix all ESLint errors in giquina-accountancy
+Bot: Added to queue. I'll create PRs by morning.
+```
+
+### 2. **Real-time GitHub Webhooks** (High Value)
+Get instant notifications when:
+- New PR opened → Auto-review suggestion
+- CI fails → Alert with error summary
+- Issue created → Auto-triage
+
+### 3. **Multi-Repo Operations** (Medium Value)
+```
+User: search all repos for TODO comments
+User: compare activity across all repos
+```
+
+### 4. **MCP Server Integration** (High Value, High Effort)
+Connect to Model Context Protocol for richer tools:
+- Better file system access
+- Enhanced memory
+- Tool chaining
+
+### 5. **Telegram Integration** (Medium Value)
+- Richer formatting (buttons, inline keyboards)
+- Better code snippet display
+- Multiple chat support
 
 ---
 
@@ -385,5 +419,5 @@ Occasionally share helpful tips:
 
 ---
 
-*Last Updated: 2026-01-31*
+*Last Updated: 2026-01-31 (v2.0 Release)*
 *Contributions welcome! Add your ideas below.*

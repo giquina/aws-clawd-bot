@@ -1,13 +1,16 @@
-# ClawdBot - AI Coding Assistant for WhatsApp
+# ClawdBot v2.0 - AI Coding Assistant for WhatsApp
 
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Claude AI](https://img.shields.io/badge/Powered%20by-Claude%20AI-orange)](https://anthropic.com)
 [![Platform](https://img.shields.io/badge/Platform-WhatsApp-25D366?logo=whatsapp&logoColor=white)](https://www.whatsapp.com/)
+[![AWS](https://img.shields.io/badge/Deployed%20on-AWS%20EC2-FF9900?logo=amazon-aws&logoColor=white)](https://aws.amazon.com/)
 
 **Your personal AI coding assistant running 24/7, controlled entirely from WhatsApp.**
 
-ClawdBot transforms WhatsApp into a powerful developer command center. Send commands via text message to manage GitHub repositories, track tasks, get morning briefings, and leverage Claude AI for coding assistance - all while you're on the go.
+ClawdBot v2.0 transforms WhatsApp into a powerful developer command center. Send commands via text message to manage GitHub repositories, **write and edit code with AI**, trigger GitHub Actions, review PRs, track tasks, get morning briefings, and leverage Claude AI for coding assistance - all while you're on the go.
+
+> 🚀 **Now running 24/7 on AWS EC2** - Send a WhatsApp message anytime and ClawdBot will respond!
 
 ---
 
@@ -15,13 +18,18 @@ ClawdBot transforms WhatsApp into a powerful developer command center. Send comm
 
 | Feature | Description |
 |---------|-------------|
+| **AI Code Writing** | Edit files, create new files, fix issues - AI generates code and creates PRs |
+| **GitHub Actions** | List workflows, view runs, trigger workflows remotely |
+| **Code Review** | AI-powered PR review and file improvement suggestions |
+| **Repository Stats** | Contributors, activity, language breakdown, comprehensive analytics |
+| **File Operations** | Read actual file contents, search code across repos |
+| **PR Management** | View PRs, see diffs, create branches, comment on issues |
 | **Persistent Memory** | Remembers conversations and facts you share across sessions (SQLite) |
-| **Skills System** | Modular, extensible plugin architecture for adding new capabilities |
+| **Skills System** | 12+ modular skills with extensible plugin architecture |
 | **Scheduler** | Automated morning briefs, reminders, and recurring tasks (node-cron) |
-| **GitHub Integration** | List repos, analyze code, create PRs/branches/issues, add comments |
 | **Claude AI** | Natural language processing for coding questions and assistance |
 | **Task Management** | Track tasks with priorities (urgent/high/medium/low) |
-| **Webhook Support** | Receive GitHub events (PRs, issues, pushes) directly in WhatsApp |
+| **24/7 AWS Deployment** | Runs on EC2 with PM2 process management, always available |
 
 ---
 
@@ -96,12 +104,51 @@ npm run dev    # Auto-reload on file changes (uses nodemon)
 |---------|-------------|
 | `list repos` | List all monitored repositories |
 | `analyze <repo>` | Get repository statistics and code structure |
+| `read file <repo> <path>` | **Read actual file contents from GitHub** |
+| `search <repo> <query>` | Search code in the repository |
+| `list branches <repo>` | List all branches |
+| `commits <repo>` | Show recent commits |
+| `view pr <repo> #<n>` | View PR details, files changed, diff summary |
 | `create branch <repo> <name>` | Create a new branch from main |
-| `create branch <repo> <name> from <base>` | Create branch from specific base |
 | `create issue <repo> <title>` | Create a new GitHub issue |
 | `close issue <repo> #<number>` | Close an issue |
 | `comment <repo> #<number> <message>` | Add comment to issue/PR |
-| `create pr <repo> <title>` | Create a pull request (guided) |
+| `create pr <repo> <title>` | Create a pull request |
+
+### AI Code Writing (NEW in v2.0)
+
+| Command | Description |
+|---------|-------------|
+| `fix issue <repo> #<n>` | Analyze issue and suggest a fix |
+| `edit file <repo> <path> <instructions>` | Edit a file with AI assistance, creates PR |
+| `create file <repo> <path> <description>` | Create new file based on description |
+| `quick fix <repo> <path> <what to fix>` | Quick edit and create PR |
+
+### GitHub Actions (NEW in v2.0)
+
+| Command | Description |
+|---------|-------------|
+| `workflows <repo>` | List all workflows |
+| `runs <repo>` | Show recent workflow runs |
+| `run workflow <repo> <name>` | Trigger a workflow manually |
+| `run status <repo> <id>` | Check workflow run status |
+
+### Code Review (NEW in v2.0)
+
+| Command | Description |
+|---------|-------------|
+| `review pr <repo> #<n>` | AI code review of a pull request |
+| `review file <repo> <path>` | AI review of a specific file |
+| `improve <repo> <path>` | Get improvement suggestions for a file |
+
+### Repository Stats (NEW in v2.0)
+
+| Command | Description |
+|---------|-------------|
+| `stats <repo>` | Comprehensive repo statistics |
+| `contributors <repo>` | Top contributors list |
+| `activity <repo>` | Recent activity summary |
+| `languages <repo>` | Language breakdown with visual bars |
 
 ### Morning Brief & Scheduler
 
@@ -169,10 +216,18 @@ aws-clawd-bot/
 │       ├── base-skill.js      # Abstract skill class
 │       ├── skill-registry.js  # Skill management
 │       ├── skill-loader.js    # Dynamic skill loading
-│       ├── github/            # GitHub skill
-│       ├── memory/            # Memory skill
-│       ├── morning-brief/     # Morning brief skill
-│       └── help/              # Help skill
+│       ├── github/            # GitHub skill (repos, branches, issues, PRs)
+│       ├── memory/            # Memory skill (facts, conversation)
+│       ├── morning-brief/     # Morning brief skill (daily summaries)
+│       ├── tasks/             # Task management
+│       ├── reminders/         # Reminder system
+│       ├── coder/             # AI code writing (fix, edit, create)
+│       ├── review/            # AI code review
+│       ├── actions/           # GitHub Actions integration
+│       ├── stats/             # Repository statistics
+│       ├── research/          # Web research
+│       ├── vercel/            # Vercel deployment
+│       └── help/              # Help and command listing
 ├── 03-github-automation/      # Advanced GitHub operations
 │   └── code-analyzer.js       # Octokit-based code analysis
 ├── 05-docker/                 # Docker configuration
@@ -245,14 +300,22 @@ MORNING_BRIEF_TIME=08:00
 
 ClawdBot uses a modular skills architecture. Each skill is a self-contained module that handles specific commands.
 
-### Built-in Skills
+### Built-in Skills (12 Skills)
 
 | Skill | Priority | Description |
 |-------|----------|-------------|
 | `help` | 100 | Command documentation and skill listing |
 | `memory` | 50 | Fact storage and conversation management |
 | `morning-brief` | 40 | Daily briefings and scheduling |
-| `github` | 10 | Repository management and automation |
+| `tasks` | 35 | Task management with priorities |
+| `reminders` | 30 | Time-based reminders |
+| `coder` | 20 | **AI code writing - fix issues, edit files, create PRs** |
+| `review` | 18 | **AI code review for PRs and files** |
+| `actions` | 15 | **GitHub Actions - list/trigger workflows** |
+| `stats` | 12 | **Repository statistics and analytics** |
+| `github` | 10 | Repository management (branches, issues, PRs) |
+| `research` | 8 | Web research capability |
+| `vercel` | 5 | Vercel deployment integration |
 
 ### Creating a Custom Skill
 
