@@ -7,13 +7,13 @@ This file provides guidance to AI coding assistants (Claude, GPT, Copilot, Curso
 A WhatsApp-controlled AI coding assistant running 24/7 on AWS EC2. Send commands via WhatsApp to write code, create PRs, trigger workflows, manage GitHub repos, track company deadlines, and more.
 
 **Live:** `16.171.150.151:3000` (eu-north-1)
-**Skills:** 21 loaded
+**Skills:** 22 loaded
 **Hooks:** Error alerting, Smart NLP routing
 
 ## Architecture
 
 ```
-WhatsApp → Twilio → Express (index.js) → Hooks → Skills Router (21 skills)
+WhatsApp → Twilio → Express (index.js) → Hooks → Skills Router (22 skills)
                                            ↓
                     ┌──────────────────────┼──────────────────────┐
                     ↓                      ↓                      ↓
@@ -22,12 +22,12 @@ WhatsApp → Twilio → Express (index.js) → Hooks → Skills Router (21 skill
                     ↓
     ┌───────────────┼───────────────┬───────────────┬───────────────┐
     ↓               ↓               ↓               ↓               ↓
-GitHub/Code    Accountancy      Productivity     AI Features    Scheduler
-(21 skills)    (deadlines,      (tasks, digest,  (overnight,    (proactive
+GitHub/Code    Accountancy      Productivity     AI/Social      Scheduler
+(22 skills)    (deadlines,      (tasks, digest,  (overnight,    (proactive
                companies)        receipts)        voice)         alerts)
 ```
 
-## Skills (21 loaded)
+## Skills (22 loaded)
 
 | Category | Skill | Priority | Key Commands |
 |----------|-------|----------|--------------|
@@ -48,6 +48,7 @@ GitHub/Code    Accountancy      Productivity     AI Features    Scheduler
 | | `tasks` | 35 | `add task`, `my tasks` |
 | | `memory` | 50 | `remember`, `my facts` |
 | | `reminders` | 30 | `remind me` |
+| **Social** | `moltbook` | 40 | `post to moltbook`, `moltbook feed`, `join moltbook` |
 | **System** | `voice` | 99 | Send voice → transcribe |
 | | `help` | 100 | `help`, `status`, `skills` |
 
