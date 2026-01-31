@@ -4,12 +4,13 @@
 /**
  * Generate a morning brief message
  * @param {Object} db - Memory manager instance
- * @param {Object} params - Job parameters
+ * @param {Object} params - Job parameters (includes userId)
  * @returns {Promise<string>} Morning brief message
  */
 async function generate(db, params = {}) {
     const now = new Date();
     const hour = now.getHours();
+    const userId = params.userId || process.env.YOUR_WHATSAPP;
 
     // Time-appropriate greeting
     const greeting = getGreeting(hour);
@@ -19,15 +20,12 @@ async function generate(db, params = {}) {
 
     try {
         // Section 1: Pending Tasks
-        brief += await getPendingTasksSummary(db);
+        brief += getPendingTasksSummary(db, userId);
 
-        // Section 2: Overnight Activity
-        brief += await getOvernightActivity(db);
+        // Section 2: Quick Stats
+        brief += getQuickStats(db, userId);
 
-        // Section 3: Quick Stats
-        brief += await getQuickStats(db);
-
-        // Section 4: Motivational close
+        // Section 3: Motivational close
         brief += getClosingMessage(now);
 
     } catch (error) {
@@ -62,28 +60,27 @@ function getGreeting(hour) {
 /**
  * Get summary of pending tasks
  * @param {Object} db - Memory manager
- * @returns {Promise<string>} Tasks summary section
+ * @param {string} userId - User ID
+ * @returns {string} Tasks summary section
  */
-async function getPendingTasksSummary(db) {
+function getPendingTasksSummary(db, userId) {
     let section = `PENDING TASKS\n`;
     section += `${'='.repeat(20)}\n`;
 
-    if (!db) {
+    if (!db || !userId) {
         section += `Task tracking not available.\n\n`;
         return section;
     }
 
     try {
-        const tasks = await db.query('tasks', {
-            where: { status: 'pending' },
-            orderBy: { priority: 'desc' }
-        }) || [];
+        // Use actual memory manager method
+        const tasks = db.getTasks(userId, 'pending') || [];
 
         if (tasks.length === 0) {
             section += `No pending tasks - you're all caught up!\n\n`;
         } else {
             // Group by priority
-            const high = tasks.filter(t => t.priority === 'high');
+            const high = tasks.filter(t => t.priority === 'high' || t.priority === 'urgent');
             const medium = tasks.filter(t => t.priority === 'medium');
             const low = tasks.filter(t => t.priority === 'low' || !t.priority);
 
@@ -122,78 +119,12 @@ async function getPendingTasksSummary(db) {
 }
 
 /**
- * Get overnight activity summary
- * @param {Object} db - Memory manager
- * @returns {Promise<string>} Overnight activity section
- */
-async function getOvernightActivity(db) {
-    let section = `OVERNIGHT ACTIVITY\n`;
-    section += `${'='.repeat(20)}\n`;
-
-    if (!db) {
-        section += `Activity tracking not available.\n\n`;
-        return section;
-    }
-
-    try {
-        // Get conversations from the last 12 hours
-        const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
-
-        const conversations = await db.query('conversations', {
-            where: {
-                timestamp: { $gte: twelveHoursAgo }
-            },
-            orderBy: { timestamp: 'desc' }
-        }) || [];
-
-        // Get completed tasks from overnight
-        const completedTasks = await db.query('tasks', {
-            where: {
-                completed_at: { $gte: twelveHoursAgo }
-            }
-        }) || [];
-
-        // Get scheduled jobs that ran overnight
-        const jobsRun = await db.query('scheduled_jobs', {
-            where: {
-                last_run: { $gte: twelveHoursAgo }
-            }
-        }) || [];
-
-        if (conversations.length === 0 && completedTasks.length === 0 && jobsRun.length === 0) {
-            section += `Quiet night - no activity recorded.\n\n`;
-        } else {
-            if (conversations.length > 0) {
-                section += `- ${conversations.length} conversation(s)\n`;
-            }
-            if (completedTasks.length > 0) {
-                section += `- ${completedTasks.length} task(s) completed\n`;
-            }
-            if (jobsRun.length > 0) {
-                section += `- ${jobsRun.length} scheduled job(s) ran\n`;
-            }
-
-            // Show last conversation snippet
-            if (conversations.length > 0 && conversations[0].summary) {
-                section += `\nLast activity: ${conversations[0].summary.substring(0, 50)}...\n`;
-            }
-
-            section += `\n`;
-        }
-    } catch (error) {
-        console.error('[MorningBrief] Error fetching overnight activity:', error);
-        section += `Unable to fetch activity.\n\n`;
-    }
-
-    return section;
-}
-
-/**
  * Get quick stats
  * @param {Object} db - Memory manager
- * @returns {Promise<string>} Stats section
+ * @param {string} userId - User ID
+ * @returns {string} Stats section
  */
-async function getQuickStats(db) {
+function getQuickStats(db, userId) {
     let section = `QUICK STATS\n`;
     section += `${'='.repeat(20)}\n`;
 
@@ -206,14 +137,14 @@ async function getQuickStats(db) {
     section += `Bot uptime: ${hours}h ${minutes}m\n`;
     section += `Memory usage: ${memoryMB} MB\n`;
 
-    if (db) {
+    if (db && userId) {
         try {
-            // Try to get additional stats
-            const totalTasks = await db.count('tasks') || 0;
-            const totalConversations = await db.count('conversations') || 0;
-
-            section += `Total tasks: ${totalTasks}\n`;
-            section += `Total conversations: ${totalConversations}\n`;
+            // Use actual memory manager stats method
+            const stats = db.getStats(userId);
+            if (stats) {
+                section += `Messages: ${stats.messageCount || 0}\n`;
+                section += `Facts remembered: ${stats.factCount || 0}\n`;
+            }
         } catch (error) {
             // Stats not available, that's okay
         }
@@ -252,7 +183,6 @@ module.exports = {
     generate,
     getGreeting,
     getPendingTasksSummary,
-    getOvernightActivity,
     getQuickStats,
     getClosingMessage
 };

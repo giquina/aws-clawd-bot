@@ -8,6 +8,10 @@ const twilio = require('twilio');
 const path = require('path');
 require('dotenv').config();
 
+// Initialize hooks system early (includes error alerter and smart router)
+const hooks = require('./hooks');
+hooks.initializeHooks();
+
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -132,7 +136,8 @@ app.get('/health', (req, res) => {
         features: {
             persistentMemory: !!memory,
             skillsFramework: !!skillRegistry,
-            scheduler: !!scheduler
+            scheduler: !!scheduler,
+            smartRouter: !!hooks.smartRouter
         },
         stats: stats
     });
@@ -229,10 +234,13 @@ app.post('/webhook', async (req, res) => {
         const mediaUrl = numMedia > 0 ? req.body.MediaUrl0 : null;
         const mediaContentType = numMedia > 0 ? req.body.MediaContentType0 : null;
 
+        // Preprocess message through hooks (natural language -> command)
+        const processedMsg = await hooks.preprocess(incomingMsg, { userId, fromNumber });
+
         // Try skill registry first
         if (skillRegistry) {
             try {
-                const result = await skillRegistry.route(incomingMsg, {
+                const result = await skillRegistry.route(processedMsg, {
                     userId: userId,
                     fromNumber: fromNumber,
                     memory: memory,
@@ -253,7 +261,7 @@ app.post('/webhook', async (req, res) => {
 
         // Fallback to built-in commands if skills didn't handle it
         if (!handled) {
-            const cmd = incomingMsg.toLowerCase();
+            const cmd = processedMsg.toLowerCase();
 
             if (cmd === 'status') {
                 responseText = await handleStatusCommand();
@@ -261,7 +269,7 @@ app.post('/webhook', async (req, res) => {
             }
         }
 
-        // Final fallback to AI
+        // Final fallback to AI (use original message for natural conversation)
         if (!handled) {
             // Include user facts in context if available
             if (memory) {
@@ -372,6 +380,7 @@ app.listen(port, '0.0.0.0', () => {
     console.log(`   • Memory: ${memory ? 'Persistent' : 'In-memory only'}`);
     console.log(`   • Skills: ${skillRegistry ? 'Loaded' : 'Not available'}`);
     console.log(`   • Scheduler: ${scheduler ? 'Active' : 'Not available'}`);
+    console.log(`   • SmartRouter: Active (NL -> commands)`);
     console.log(`   • GitHub Webhook: ${process.env.GITHUB_WEBHOOK_SECRET ? 'Secured' : 'Open (no secret)'}`);
     console.log('');
 });

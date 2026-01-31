@@ -28,6 +28,7 @@ class Scheduler {
         this.registerHandler('morning-brief', this.handleMorningBrief.bind(this));
         this.registerHandler('evening-report', this.handleEveningReport.bind(this));
         this.registerHandler('health-check', this.handleHealthCheck.bind(this));
+        this.registerHandler('proactive-alerts', this.handleProactiveAlerts.bind(this));
         this.registerHandler('custom', this.handleCustomJob.bind(this));
     }
 
@@ -293,21 +294,26 @@ class Scheduler {
 
         try {
             // Get today's activity summary
-            if (this.db) {
+            if (this.db && this.db.db) {
                 const today = new Date().toISOString().split('T')[0];
-                const conversations = await this.db.query(
-                    'conversations',
-                    { where: { date: today } }
-                ) || [];
 
-                const tasksDone = await this.db.query(
-                    'tasks',
-                    { where: { completed_at: today } }
-                ) || [];
+                // Query conversations for today using prepared statements
+                const convStmt = this.db.db.prepare(
+                    'SELECT COUNT(*) as count FROM conversations WHERE DATE(created_at) = ?'
+                );
+                const convResult = convStmt.get(today);
+                const conversationCount = convResult?.count || 0;
+
+                // Query completed tasks for today
+                const taskStmt = this.db.db.prepare(
+                    'SELECT COUNT(*) as count FROM tasks WHERE DATE(completed_at) = ?'
+                );
+                const taskResult = taskStmt.get(today);
+                const tasksCompletedCount = taskResult?.count || 0;
 
                 message += `Today's activity:\n`;
-                message += `- Conversations: ${conversations.length}\n`;
-                message += `- Tasks completed: ${tasksDone.length}\n`;
+                message += `- Conversations: ${conversationCount}\n`;
+                message += `- Tasks completed: ${tasksCompletedCount}\n`;
             } else {
                 message += `Activity tracking not available (database not connected)\n`;
             }
@@ -337,6 +343,16 @@ class Scheduler {
                `Uptime: ${hours}h ${minutes}m\n` +
                `Memory: ${memoryMB} MB\n` +
                `Active Jobs: ${this.jobs.size}`;
+    }
+
+    /**
+     * Proactive alerts handler - sends daily deadline/PR/CI alerts
+     * @param {Object} params - Job parameters
+     * @returns {Promise<string|null>} Alert message or null if no alerts
+     */
+    async handleProactiveAlerts(params = {}) {
+        const proactiveAlerts = require('./jobs/proactive-alerts');
+        return proactiveAlerts.generate(this.db, params);
     }
 
     /**
@@ -452,8 +468,16 @@ class Scheduler {
         }
 
         try {
-            const jobs = await this.db.query('scheduled_jobs', {}) || [];
-            return jobs;
+            // Use memory manager's getEnabledJobs method or raw SQL
+            if (typeof this.db.getEnabledJobs === 'function') {
+                return this.db.getEnabledJobs();
+            }
+            // Fallback: query using prepared statement on the underlying db
+            if (this.db.db) {
+                const stmt = this.db.db.prepare('SELECT * FROM scheduled_jobs');
+                return stmt.all();
+            }
+            return [];
         } catch (error) {
             console.error('[Scheduler] Error loading jobs from database:', error);
             return [];
@@ -471,7 +495,38 @@ class Scheduler {
         }
 
         try {
-            await this.db.insert('scheduled_jobs', job);
+            // Use memory manager's createScheduledJob method if available
+            if (typeof this.db.createScheduledJob === 'function') {
+                const params = typeof job.params === 'string' ? JSON.parse(job.params) : job.params;
+                this.db.createScheduledJob(
+                    job.name,
+                    job.cron_expression,
+                    job.handler,
+                    params || {},
+                    job.enabled !== false
+                );
+                return;
+            }
+            // Fallback: insert using prepared statement on the underlying db
+            if (this.db.db) {
+                const stmt = this.db.db.prepare(`
+                    INSERT INTO scheduled_jobs (id, name, cron_expression, handler, params, enabled, timezone, created_at, last_run, next_run, run_count)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `);
+                stmt.run(
+                    job.id,
+                    job.name,
+                    job.cron_expression,
+                    job.handler,
+                    job.params,
+                    job.enabled ? 1 : 0,
+                    job.timezone,
+                    job.created_at,
+                    job.last_run,
+                    job.next_run,
+                    job.run_count || 0
+                );
+            }
         } catch (error) {
             console.error('[Scheduler] Error saving job to database:', error);
             throw error;
@@ -486,7 +541,27 @@ class Scheduler {
         if (!this.db) return;
 
         try {
-            await this.db.update('scheduled_jobs', { id: job.id }, job);
+            // Use memory manager's updateJobRun if only updating run info
+            if (typeof this.db.updateJobRun === 'function' && job.last_run) {
+                this.db.updateJobRun(job.id, job.next_run);
+            }
+            // Fallback: update using prepared statement on the underlying db
+            if (this.db.db) {
+                const stmt = this.db.db.prepare(`
+                    UPDATE scheduled_jobs
+                    SET last_run = ?, next_run = ?, run_count = ?, enabled = ?, last_error = ?
+                    WHERE id = ? OR name = ?
+                `);
+                stmt.run(
+                    job.last_run,
+                    job.next_run,
+                    job.run_count || 0,
+                    job.enabled ? 1 : 0,
+                    job.last_error || null,
+                    job.id,
+                    job.name
+                );
+            }
         } catch (error) {
             console.error('[Scheduler] Error updating job in database:', error);
         }
@@ -500,8 +575,13 @@ class Scheduler {
         if (!this.db) return false;
 
         try {
-            await this.db.delete('scheduled_jobs', { id: jobId });
-            return true;
+            // Use prepared statement on the underlying db
+            if (this.db.db) {
+                const stmt = this.db.db.prepare('DELETE FROM scheduled_jobs WHERE id = ? OR name = ?');
+                const result = stmt.run(jobId, jobId);
+                return result.changes > 0;
+            }
+            return false;
         } catch (error) {
             console.error('[Scheduler] Error deleting job from database:', error);
             return false;
@@ -516,8 +596,12 @@ class Scheduler {
         if (!this.db) return null;
 
         try {
-            const jobs = await this.db.query('scheduled_jobs', { where: { id: jobId } }) || [];
-            return jobs[0] || null;
+            // Use prepared statement on the underlying db
+            if (this.db.db) {
+                const stmt = this.db.db.prepare('SELECT * FROM scheduled_jobs WHERE id = ?');
+                return stmt.get(jobId) || null;
+            }
+            return null;
         } catch (error) {
             console.error('[Scheduler] Error getting job by ID:', error);
             return null;
@@ -532,8 +616,12 @@ class Scheduler {
         if (!this.db) return null;
 
         try {
-            const jobs = await this.db.query('scheduled_jobs', { where: { name } }) || [];
-            return jobs[0] || null;
+            // Use prepared statement on the underlying db
+            if (this.db.db) {
+                const stmt = this.db.db.prepare('SELECT * FROM scheduled_jobs WHERE name = ?');
+                return stmt.get(name) || null;
+            }
+            return null;
         } catch (error) {
             console.error('[Scheduler] Error getting job by name:', error);
             return null;
