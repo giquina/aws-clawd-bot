@@ -1,0 +1,29 @@
+{
+  "name": "clawd-bot-whatsapp",
+  "version": "1.0.0",
+  "description": "WhatsApp interface for ClawdBot AI coding agent",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "node ../scripts/test-bot.js",
+    "setup": "node ../scripts/setup.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@octokit/rest": "^22.0.1",
+    "axios": "^1.6.2",
+    "better-sqlite3": "^11.7.0",
+    "body-parser": "^1.20.2",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "node-cron": "^3.0.3",
+    "twilio": "^4.19.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

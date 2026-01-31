@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(move:*)",
+      "Bash(cmd /c move \"C:\\\\Users\\\\Owner\\\\Downloads\\\\twilio_2FA_recovery_code.txt\" \"C:\\\\Giquina-Projects\\\\aws-clawd-bot\\\\config\\\\twilio_2FA_recovery_code.txt\")",
+      "Bash(cmd /c if exist \"C:\\\\Giquina-Projects\\\\aws-clawd-bot\\\\config\\\\twilio_2FA_recovery_code.txt\" echo FILE EXISTS)",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(curl:*)",
+      "Bash(timeout 3 sleep:*)",
+      "Bash(timeout 2 sleep:*)"
+    ]
+  }
+}

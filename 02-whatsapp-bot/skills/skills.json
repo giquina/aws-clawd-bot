@@ -1,0 +1,32 @@
+{
+  "enabled": [
+    "help",
+    "memory",
+    "tasks",
+    "github",
+    "morning-brief",
+    "research",
+    "vercel",
+    "reminders"
+  ],
+  "disabled": [],
+  "config": {
+    "help": {
+      "showDisabled": false,
+      "groupBySkill": true
+    },
+    "memory": {},
+    "tasks": {},
+    "github": {},
+    "morning-brief": {
+      "time": "08:00",
+      "timezone": "Europe/London"
+    },
+    "research": {},
+    "vercel": {},
+    "reminders": {
+      "maxReminders": 50,
+      "maxDelayHours": 24
+    }
+  }
+}
