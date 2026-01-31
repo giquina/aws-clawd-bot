@@ -2,27 +2,44 @@
  * Receipts Skill - Receipt image processing and expense tracking
  *
  * Uses Claude Vision API to extract data from receipt images sent via WhatsApp.
- * Stores receipts in memory (SQLite) for expense tracking and summaries.
+ * Stores receipts in a local JSON file (data/receipts.json) for persistence.
  *
  * Commands:
  *   [image message]          - Detect receipt, extract data, ask for confirmation
- *   expenses | my expenses   - Show recent expenses
+ *   expenses | my expenses   - Show recent expenses (last 10)
  *   summary | expense summary - Monthly expense summary
  *   confirm | yes             - Confirm pending receipt
  *   reject | no | cancel      - Reject pending receipt
+ *   list receipts             - List all stored receipts
+ *   receipts this month       - Show receipts from current month
+ *   delete expense #<id>      - Delete an expense by ID
+ *
+ * Receipt data stored:
+ *   - date: Receipt date (YYYY-MM-DD)
+ *   - vendor: Merchant/business name
+ *   - amount: Total amount paid
+ *   - vat: VAT/tax amount
+ *   - category: Expense category (auto-detected or from receipt)
+ *   - originalFilename: Original image filename (if available)
  *
  * @example
  * [User sends receipt image]
  * -> "Found receipt from Shell for 45.50 GBP. Confirm?"
  *
- * expenses
- * -> Lists recent expenses
+ * list receipts
+ * -> Lists all stored receipts with VAT breakdown
  *
- * summary
- * -> Shows monthly breakdown
+ * receipts this month
+ * -> Shows current month's receipts with category summary
  */
 const BaseSkill = require('../base-skill');
 const Anthropic = require('@anthropic-ai/sdk');
+const fs = require('fs');
+const path = require('path');
+
+// Path to receipts data file
+const DATA_DIR = path.join(__dirname, '..', '..', 'data');
+const RECEIPTS_FILE = path.join(DATA_DIR, 'receipts.json');
 
 // Category mappings for auto-detection
 const CATEGORY_KEYWORDS = {
@@ -68,6 +85,16 @@ class ReceiptsSkill extends BaseSkill {
       pattern: /^delete expense #?(\d+)$/i,
       description: 'Delete an expense by ID',
       usage: 'delete expense #<id>'
+    },
+    {
+      pattern: /^list receipts$/i,
+      description: 'List all stored receipts',
+      usage: 'list receipts'
+    },
+    {
+      pattern: /^receipts this month$/i,
+      description: 'Show receipts from current month',
+      usage: 'receipts this month'
     }
   ];
 
@@ -75,6 +102,144 @@ class ReceiptsSkill extends BaseSkill {
     super(context);
     this.claude = null;
     this.pendingReceipts = new Map(); // userId -> pending receipt data
+    this.ensureDataDirectory();
+  }
+
+  /**
+   * Ensure the data directory exists
+   */
+  ensureDataDirectory() {
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+        this.log('info', `Created data directory: ${DATA_DIR}`);
+      }
+      // Initialize receipts file if it doesn't exist
+      if (!fs.existsSync(RECEIPTS_FILE)) {
+        fs.writeFileSync(RECEIPTS_FILE, JSON.stringify({ receipts: [], nextId: 1 }, null, 2));
+        this.log('info', `Created receipts file: ${RECEIPTS_FILE}`);
+      }
+    } catch (error) {
+      this.log('error', 'Failed to create data directory', error);
+    }
+  }
+
+  /**
+   * Load receipts from JSON file
+   * @returns {{receipts: Array, nextId: number}}
+   */
+  loadReceipts() {
+    try {
+      this.ensureDataDirectory();
+      const data = fs.readFileSync(RECEIPTS_FILE, 'utf8');
+      return JSON.parse(data);
+    } catch (error) {
+      this.log('error', 'Failed to load receipts, returning empty', error);
+      return { receipts: [], nextId: 1 };
+    }
+  }
+
+  /**
+   * Save receipts to JSON file
+   * @param {{receipts: Array, nextId: number}} data
+   */
+  saveReceipts(data) {
+    try {
+      this.ensureDataDirectory();
+      fs.writeFileSync(RECEIPTS_FILE, JSON.stringify(data, null, 2));
+      this.log('info', `Saved ${data.receipts.length} receipts to file`);
+    } catch (error) {
+      this.log('error', 'Failed to save receipts', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add a receipt to the JSON store
+   * @param {Object} receipt - Receipt data to store
+   * @returns {number} - The ID of the saved receipt
+   */
+  addReceipt(receipt) {
+    const data = this.loadReceipts();
+    const id = data.nextId;
+
+    const receiptRecord = {
+      id,
+      date: receipt.receipt_date || 'Not stated',
+      vendor: receipt.merchant_name || 'Unknown',
+      amount: typeof receipt.total === 'number' ? receipt.total : null,
+      currency: receipt.currency || 'GBP',
+      vat: typeof receipt.tax === 'number' ? receipt.tax : null,
+      category: receipt.category || 'Other',
+      originalFilename: receipt.originalFilename || null,
+      paymentMethod: receipt.payment_method || 'Not stated',
+      last4: receipt.last4 || null,
+      confidence: receipt.extraction_confidence || 0,
+      imageUrl: receipt.imageUrl || null,
+      savedAt: new Date().toISOString()
+    };
+
+    data.receipts.push(receiptRecord);
+    data.nextId = id + 1;
+    this.saveReceipts(data);
+
+    return id;
+  }
+
+  /**
+   * Delete a receipt by ID
+   * @param {number} id - Receipt ID to delete
+   * @returns {Object|null} - Deleted receipt or null if not found
+   */
+  deleteReceipt(id) {
+    const data = this.loadReceipts();
+    const index = data.receipts.findIndex(r => r.id === id);
+
+    if (index === -1) {
+      return null;
+    }
+
+    const deleted = data.receipts.splice(index, 1)[0];
+    this.saveReceipts(data);
+    return deleted;
+  }
+
+  /**
+   * Get receipts filtered by criteria
+   * @param {Object} filters - Filter criteria
+   * @param {string} filters.month - Filter by month (YYYY-MM format)
+   * @param {string} filters.category - Filter by category
+   * @param {number} filters.limit - Limit number of results
+   * @returns {Array}
+   */
+  getReceipts(filters = {}) {
+    const data = this.loadReceipts();
+    let receipts = data.receipts;
+
+    if (filters.month) {
+      receipts = receipts.filter(r =>
+        r.date && r.date !== 'Not stated' && r.date.startsWith(filters.month)
+      );
+    }
+
+    if (filters.category) {
+      receipts = receipts.filter(r =>
+        r.category && r.category.toLowerCase() === filters.category.toLowerCase()
+      );
+    }
+
+    // Sort by date descending (newest first)
+    receipts.sort((a, b) => {
+      const dateA = a.savedAt || a.date || '';
+      const dateB = b.savedAt || b.date || '';
+      return dateB.localeCompare(dateA);
+    });
+
+    if (filters.limit && filters.limit > 0) {
+      receipts = receipts.slice(0, filters.limit);
+    }
+
+    return receipts;
   }
 
   /**
@@ -143,7 +308,15 @@ class ReceiptsSkill extends BaseSkill {
       return await this.handleDeleteCommand(userId, parseInt(deleteMatch[1]));
     }
 
-    return this.error('Unknown receipts command. Try "expenses" or "summary".');
+    if (/^list receipts$/i.test(lowerCommand)) {
+      return await this.handleListReceiptsCommand(userId);
+    }
+
+    if (/^receipts this month$/i.test(lowerCommand)) {
+      return await this.handleReceiptsThisMonthCommand(userId);
+    }
+
+    return this.error('Unknown receipts command. Try "expenses", "list receipts", or "receipts this month".');
   }
 
   /**
@@ -331,7 +504,7 @@ Return ONLY the JSON object:`;
   }
 
   /**
-   * Handle confirm command - save pending receipt
+   * Handle confirm command - save pending receipt to JSON file
    */
   async handleConfirmCommand(userId) {
     const pending = this.pendingReceipts.get(userId);
@@ -340,31 +513,9 @@ Return ONLY the JSON object:`;
       return this.error('No pending receipt to confirm. Send a receipt image first.');
     }
 
-    // Save to memory
-    if (!this.memory) {
-      return this.error('Memory system not available. Cannot save receipt.');
-    }
-
     try {
-      // Store receipt as a structured fact
-      const receiptRecord = {
-        type: 'receipt',
-        merchant_name: pending.merchant_name,
-        amount: pending.total,
-        currency: pending.currency || 'GBP',
-        date: pending.receipt_date,
-        category: pending.category || 'Other',
-        tax: pending.tax,
-        payment_method: pending.payment_method,
-        last4: pending.last4,
-        confidence: pending.extraction_confidence,
-        imageUrl: pending.imageUrl,
-        savedAt: new Date().toISOString()
-      };
-
-      // Save as a fact with category 'expense'
-      const factText = JSON.stringify(receiptRecord);
-      const factId = this.memory.saveFact(userId, factText, 'expense', 'receipt_scan');
+      // Save to JSON file
+      const receiptId = this.addReceipt(pending);
 
       // Clear pending
       this.pendingReceipts.delete(userId);
@@ -373,11 +524,16 @@ Return ONLY the JSON object:`;
         ? `${pending.currency || 'GBP'} ${pending.total.toFixed(2)}`
         : 'amount';
 
+      const vat = typeof pending.tax === 'number'
+        ? ` (VAT: ${pending.currency || 'GBP'} ${pending.tax.toFixed(2)})`
+        : '';
+
       return this.success(
-        `Saved receipt #${factId}\n\n` +
-        `${pending.merchant_name}: ${amount}\n` +
+        `Saved receipt #${receiptId}\n\n` +
+        `${pending.merchant_name}: ${amount}${vat}\n` +
+        `Date: ${pending.receipt_date || 'Not stated'}\n` +
         `Category: ${pending.category || 'Other'}\n\n` +
-        `_Use "expenses" to see your expenses_`
+        `_Use "list receipts" to see all receipts_`
       );
     } catch (error) {
       this.log('error', 'Failed to save receipt', error);
@@ -400,30 +556,14 @@ Return ONLY the JSON object:`;
   }
 
   /**
-   * Handle expenses command - show recent expenses
+   * Handle expenses command - show recent expenses from JSON file
    */
   async handleExpensesCommand(userId) {
-    if (!this.memory) {
-      return this.error('Memory system not available.');
-    }
-
     try {
-      // Get all expense facts
-      const facts = this.memory.getFacts(userId);
-      const expenses = facts
-        .filter(f => f.category === 'expense')
-        .map(f => {
-          try {
-            return { id: f.id, ...JSON.parse(f.fact), savedAt: f.updated_at };
-          } catch {
-            return null;
-          }
-        })
-        .filter(e => e && e.type === 'receipt')
-        .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt))
-        .slice(0, 10); // Last 10 expenses
+      // Get receipts from JSON file (limited to 10)
+      const receipts = this.getReceipts({ limit: 10 });
 
-      if (expenses.length === 0) {
+      if (receipts.length === 0) {
         return this.success(
           'No expenses recorded yet.\n\n' +
           'Send a receipt photo to add one!'
@@ -434,26 +574,26 @@ Return ONLY the JSON object:`;
       msg += '\n';
 
       let total = 0;
-      for (const exp of expenses) {
-        const amount = typeof exp.amount === 'number' ? exp.amount : 0;
+      for (const receipt of receipts) {
+        const amount = typeof receipt.amount === 'number' ? receipt.amount : 0;
         total += amount;
 
-        const amountStr = typeof exp.amount === 'number'
-          ? `${exp.currency || 'GBP'} ${exp.amount.toFixed(2)}`
+        const amountStr = typeof receipt.amount === 'number'
+          ? `${receipt.currency || 'GBP'} ${receipt.amount.toFixed(2)}`
           : 'N/A';
 
-        const dateStr = exp.date !== 'Not stated'
-          ? this.formatShortDate(exp.date)
+        const dateStr = receipt.date !== 'Not stated'
+          ? this.formatShortDate(receipt.date)
           : '';
 
-        msg += `#${exp.id} ${exp.merchant_name || 'Unknown'}\n`;
-        msg += `   ${amountStr} | ${exp.category || 'Other'}`;
+        msg += `#${receipt.id} ${receipt.vendor || 'Unknown'}\n`;
+        msg += `   ${amountStr} | ${receipt.category || 'Other'}`;
         if (dateStr) msg += ` | ${dateStr}`;
         msg += '\n\n';
       }
 
       msg += `*Total: GBP ${total.toFixed(2)}*\n\n`;
-      msg += `_Showing ${expenses.length} expense(s)_\n`;
+      msg += `_Showing ${receipts.length} expense(s)_\n`;
       msg += `_Use "summary" for monthly breakdown_`;
 
       return this.success(msg);
@@ -464,27 +604,13 @@ Return ONLY the JSON object:`;
   }
 
   /**
-   * Handle summary command - monthly expense breakdown
+   * Handle summary command - monthly expense breakdown from JSON file
    */
   async handleSummaryCommand(userId) {
-    if (!this.memory) {
-      return this.error('Memory system not available.');
-    }
-
     try {
-      const facts = this.memory.getFacts(userId);
-      const expenses = facts
-        .filter(f => f.category === 'expense')
-        .map(f => {
-          try {
-            return { id: f.id, ...JSON.parse(f.fact) };
-          } catch {
-            return null;
-          }
-        })
-        .filter(e => e && e.type === 'receipt');
+      const receipts = this.getReceipts();
 
-      if (expenses.length === 0) {
+      if (receipts.length === 0) {
         return this.success(
           'No expenses to summarize.\n\n' +
           'Send receipt photos to start tracking!'
@@ -496,17 +622,17 @@ Return ONLY the JSON object:`;
       const byCategory = {};
       let grandTotal = 0;
 
-      for (const exp of expenses) {
-        const amount = typeof exp.amount === 'number' ? exp.amount : 0;
+      for (const receipt of receipts) {
+        const amount = typeof receipt.amount === 'number' ? receipt.amount : 0;
         grandTotal += amount;
 
         // By category
-        const cat = exp.category || 'Other';
+        const cat = receipt.category || 'Other';
         byCategory[cat] = (byCategory[cat] || 0) + amount;
 
         // By month
-        if (exp.date && exp.date !== 'Not stated') {
-          const month = exp.date.substring(0, 7); // YYYY-MM
+        if (receipt.date && receipt.date !== 'Not stated') {
+          const month = receipt.date.substring(0, 7); // YYYY-MM
           if (!byMonth[month]) {
             byMonth[month] = { total: 0, count: 0 };
           }
@@ -538,7 +664,7 @@ Return ONLY the JSON object:`;
 
       msg += '\n';
       msg += `*All Time Total: GBP ${grandTotal.toFixed(2)}*\n`;
-      msg += `_${expenses.length} receipt(s) tracked_`;
+      msg += `_${receipts.length} receipt(s) tracked_`;
 
       return this.success(msg);
     } catch (error) {
@@ -548,36 +674,19 @@ Return ONLY the JSON object:`;
   }
 
   /**
-   * Handle delete expense command
+   * Handle delete expense command - delete from JSON file
    */
   async handleDeleteCommand(userId, expenseId) {
-    if (!this.memory) {
-      return this.error('Memory system not available.');
-    }
-
     try {
-      // Verify it's an expense fact belonging to this user
-      const facts = this.memory.getFacts(userId);
-      const expense = facts.find(f => f.id === expenseId && f.category === 'expense');
+      const deleted = this.deleteReceipt(expenseId);
 
-      if (!expense) {
+      if (!deleted) {
         return this.error(`Expense #${expenseId} not found.`);
       }
 
-      // Parse to get details for confirmation message
-      let expenseData;
-      try {
-        expenseData = JSON.parse(expense.fact);
-      } catch {
-        expenseData = {};
-      }
-
-      // Delete the fact
-      this.memory.deleteFact(userId, expenseId);
-
-      const merchant = expenseData.merchant_name || 'Unknown';
-      const amount = typeof expenseData.amount === 'number'
-        ? `${expenseData.currency || 'GBP'} ${expenseData.amount.toFixed(2)}`
+      const merchant = deleted.vendor || 'Unknown';
+      const amount = typeof deleted.amount === 'number'
+        ? `${deleted.currency || 'GBP'} ${deleted.amount.toFixed(2)}`
         : '';
 
       return this.success(
@@ -587,6 +696,133 @@ Return ONLY the JSON object:`;
     } catch (error) {
       this.log('error', 'Failed to delete expense', error);
       return this.error('Failed to delete expense. Please try again.');
+    }
+  }
+
+  /**
+   * Handle list receipts command - show all stored receipts
+   */
+  async handleListReceiptsCommand(userId) {
+    try {
+      const receipts = this.getReceipts();
+
+      if (receipts.length === 0) {
+        return this.success(
+          'No receipts stored yet.\n\n' +
+          'Send a receipt photo to add one!'
+        );
+      }
+
+      let msg = '*All Stored Receipts*\n';
+      msg += '\n';
+
+      let total = 0;
+      let totalVat = 0;
+
+      for (const receipt of receipts) {
+        const amount = typeof receipt.amount === 'number' ? receipt.amount : 0;
+        const vat = typeof receipt.vat === 'number' ? receipt.vat : 0;
+        total += amount;
+        totalVat += vat;
+
+        const amountStr = typeof receipt.amount === 'number'
+          ? `${receipt.currency || 'GBP'} ${receipt.amount.toFixed(2)}`
+          : 'N/A';
+
+        const vatStr = typeof receipt.vat === 'number'
+          ? ` (VAT: ${receipt.vat.toFixed(2)})`
+          : '';
+
+        const dateStr = receipt.date !== 'Not stated'
+          ? this.formatShortDate(receipt.date)
+          : 'No date';
+
+        msg += `#${receipt.id} ${receipt.vendor || 'Unknown'}\n`;
+        msg += `   ${amountStr}${vatStr} | ${receipt.category || 'Other'} | ${dateStr}\n\n`;
+      }
+
+      msg += `*Total: GBP ${total.toFixed(2)}*`;
+      if (totalVat > 0) {
+        msg += ` (VAT: GBP ${totalVat.toFixed(2)})`;
+      }
+      msg += `\n_${receipts.length} receipt(s) stored_`;
+
+      return this.success(msg);
+    } catch (error) {
+      this.log('error', 'Failed to list receipts', error);
+      return this.error('Failed to list receipts. Please try again.');
+    }
+  }
+
+  /**
+   * Handle receipts this month command - show current month receipts
+   */
+  async handleReceiptsThisMonthCommand(userId) {
+    try {
+      const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
+      const receipts = this.getReceipts({ month: currentMonth });
+
+      if (receipts.length === 0) {
+        return this.success(
+          `*Receipts for ${this.formatMonth(currentMonth)}*\n\n` +
+          'No receipts recorded this month.\n\n' +
+          'Send a receipt photo to add one!'
+        );
+      }
+
+      let msg = `*Receipts for ${this.formatMonth(currentMonth)}*\n`;
+      msg += '\n';
+
+      let total = 0;
+      let totalVat = 0;
+      const byCategory = {};
+
+      for (const receipt of receipts) {
+        const amount = typeof receipt.amount === 'number' ? receipt.amount : 0;
+        const vat = typeof receipt.vat === 'number' ? receipt.vat : 0;
+        total += amount;
+        totalVat += vat;
+
+        // Track by category
+        const cat = receipt.category || 'Other';
+        byCategory[cat] = (byCategory[cat] || 0) + amount;
+
+        const amountStr = typeof receipt.amount === 'number'
+          ? `${receipt.currency || 'GBP'} ${receipt.amount.toFixed(2)}`
+          : 'N/A';
+
+        const vatStr = typeof receipt.vat === 'number'
+          ? ` (VAT: ${receipt.vat.toFixed(2)})`
+          : '';
+
+        const dayStr = receipt.date !== 'Not stated'
+          ? this.formatShortDate(receipt.date)
+          : '';
+
+        msg += `#${receipt.id} ${receipt.vendor || 'Unknown'}\n`;
+        msg += `   ${amountStr}${vatStr}`;
+        if (dayStr) msg += ` | ${dayStr}`;
+        msg += `\n\n`;
+      }
+
+      // Category breakdown
+      msg += '*By Category:*\n';
+      const sortedCats = Object.entries(byCategory).sort((a, b) => b[1] - a[1]);
+      for (const [cat, amount] of sortedCats) {
+        msg += `${cat}: GBP ${amount.toFixed(2)}\n`;
+      }
+
+      msg += '\n';
+      msg += `*Month Total: GBP ${total.toFixed(2)}*`;
+      if (totalVat > 0) {
+        msg += ` (VAT: GBP ${totalVat.toFixed(2)})`;
+      }
+      msg += `\n_${receipts.length} receipt(s) this month_`;
+
+      return this.success(msg);
+    } catch (error) {
+      this.log('error', 'Failed to get receipts this month', error);
+      return this.error('Failed to get receipts. Please try again.');
     }
   }
 
