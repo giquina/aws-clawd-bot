@@ -183,7 +183,7 @@ class SkillRegistry extends EventEmitter {
     // Find the first skill that can handle this command
     for (const skill of sortedSkills) {
       try {
-        if (skill.canHandle(normalizedCommand)) {
+        if (skill.canHandle(normalizedCommand, context)) {
           // Check if skill is initialized
           if (!skill.isInitialized()) {
             console.warn(`[Registry] Skill "${skill.name}" not initialized, initializing now`);
@@ -204,7 +204,8 @@ class SkillRegistry extends EventEmitter {
 
           return {
             ...result,
-            skill: skill.name
+            skill: skill.name,
+            handled: true  // Flag for webhook handler
           };
         }
       } catch (error) {

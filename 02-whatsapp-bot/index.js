@@ -224,13 +224,22 @@ app.post('/webhook', async (req, res) => {
         let responseText = '';
         let handled = false;
 
+        // Extract media info from Twilio request (for receipt/image handling)
+        const numMedia = parseInt(req.body.NumMedia || '0', 10);
+        const mediaUrl = numMedia > 0 ? req.body.MediaUrl0 : null;
+        const mediaContentType = numMedia > 0 ? req.body.MediaContentType0 : null;
+
         // Try skill registry first
         if (skillRegistry) {
             try {
                 const result = await skillRegistry.route(incomingMsg, {
                     userId: userId,
                     fromNumber: fromNumber,
-                    memory: memory
+                    memory: memory,
+                    // Media context for receipt/image skills
+                    numMedia: numMedia,
+                    mediaUrl: mediaUrl,
+                    mediaContentType: mediaContentType
                 });
 
                 if (result && result.handled) {

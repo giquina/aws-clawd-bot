@@ -70,9 +70,10 @@ class BaseSkill {
    * Check if this skill can handle the given command
    * Override this for custom matching logic
    * @param {string} command - The command string to check
+   * @param {Object} context - Optional context (may include mediaUrl for image messages)
    * @returns {boolean} - True if this skill can handle the command
    */
-  canHandle(command) {
+  canHandle(command, context = {}) {
     if (!command || typeof command !== 'string') {
       return false;
     }

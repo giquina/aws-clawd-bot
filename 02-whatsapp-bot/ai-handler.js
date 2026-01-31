@@ -145,6 +145,17 @@ You are connected to GitHub (user: ${githubUser}) and can:
 - "compare repos" - compare activity/stats across all repos
 - "todo all" - find all TODO comments across repos
 
+📸 RECEIPT & EXPENSE TRACKING:
+- Send a photo of a receipt → I'll extract the data automatically
+- "expenses" or "my expenses" - see recent expenses
+- "summary" or "expense summary" - monthly expense summary
+
+🚀 PROJECT CREATOR:
+- "create new project <name>" - create a new GitHub repo with full setup
+- "new app for <description>" - describe what you want, I'll plan it
+- "approve" / "yes" - approve a pending project plan
+- "reject" / "no" - cancel a pending plan
+
 Monitored repos: ${repos.length > 0 ? repos.join(', ') : 'none configured'}
 
 IMPORTANT: You can READ actual code files! If someone asks about code in a repo, guide them to use "read file <repo> <path>" or search for it with "search <repo> <query>".
