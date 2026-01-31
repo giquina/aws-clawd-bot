@@ -7,7 +7,7 @@ This file provides guidance to AI coding assistants (Claude, GPT, Copilot, Curso
 A WhatsApp-controlled AI coding assistant running 24/7 on AWS EC2. Send commands via WhatsApp to write code, create PRs, trigger workflows, manage GitHub repos, track company deadlines, and more.
 
 **Live:** `16.171.150.151:3000` (eu-north-1)
-**Skills:** 22 loaded
+**Skills:** 23 loaded (auto-documented)
 **Hooks:** Error alerting, Smart NLP routing
 
 ## Architecture
@@ -27,7 +27,7 @@ GitHub/Code    Accountancy      Productivity     AI/Social      Scheduler
                companies)        receipts)        voice)         alerts)
 ```
 
-## Skills (22 loaded)
+## Skills (23 loaded)
 
 | Category | Skill | Priority | Key Commands |
 |----------|-------|----------|--------------|
@@ -105,6 +105,8 @@ ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 \
 3. **Hooks run first** - Smart router processes before skills
 4. **WhatsApp limit** - Keep responses under ~4000 chars
 5. **Skills auto-load** - Just create `skills/<name>/index.js`
+6. **Skills auto-documented** - AI handler reads from registry dynamically
+7. **Add to skills.json** - New skills must be added to `enabled` array
 
 ## Owner
 

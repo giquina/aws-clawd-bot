@@ -291,6 +291,56 @@ class SkillRegistry extends EventEmitter {
       skills: this.getSkillNames()
     };
   }
+
+  /**
+   * Generate documentation for all skills (for AI system prompt)
+   * This ensures the AI always knows about ALL registered skills
+   * @returns {string} - Formatted skill documentation
+   */
+  generateSkillDocs() {
+    const skills = this.listSkills();
+    if (skills.length === 0) return 'No skills loaded.';
+
+    // Group skills by category based on name patterns
+    const categories = {
+      'GitHub & Code': ['github', 'coder', 'review', 'actions', 'stats', 'multi-repo', 'project-creator'],
+      'Accountancy': ['deadlines', 'companies', 'governance', 'intercompany', 'receipts'],
+      'Productivity': ['digest', 'overnight', 'tasks', 'memory', 'reminders', 'morning-brief'],
+      'Social': ['moltbook'],
+      'System': ['help', 'voice', 'vercel', 'research']
+    };
+
+    let docs = '';
+    const categorized = new Set();
+
+    for (const [category, skillNames] of Object.entries(categories)) {
+      const categorySkills = skills.filter(s => skillNames.includes(s.name));
+      if (categorySkills.length === 0) continue;
+
+      docs += `\n${category.toUpperCase()}:\n`;
+      for (const skill of categorySkills) {
+        categorized.add(skill.name);
+        for (const cmd of skill.commands.slice(0, 3)) { // Max 3 commands per skill
+          const usage = cmd.usage || cmd.pattern.toString().replace(/[\/^$]/g, '');
+          docs += `- "${usage}" - ${cmd.description || skill.description}\n`;
+        }
+      }
+    }
+
+    // Any uncategorized skills
+    const uncategorized = skills.filter(s => !categorized.has(s.name));
+    if (uncategorized.length > 0) {
+      docs += '\nOTHER:\n';
+      for (const skill of uncategorized) {
+        for (const cmd of skill.commands.slice(0, 2)) {
+          const usage = cmd.usage || cmd.pattern.toString().replace(/[\/^$]/g, '');
+          docs += `- "${usage}" - ${cmd.description || skill.description}\n`;
+        }
+      }
+    }
+
+    return docs;
+  }
 }
 
 // Export singleton instance

@@ -3,6 +3,14 @@
 
 const Anthropic = require('@anthropic-ai/sdk');
 
+// Import skill registry for dynamic skill documentation
+let skillRegistry = null;
+try {
+    skillRegistry = require('./skills/skill-registry');
+} catch (e) {
+    // Skills not loaded yet, will use fallback
+}
+
 class AIHandler {
     constructor() {
         this.conversationHistory = [];
@@ -160,13 +168,40 @@ Monitored repos: ${repos.length > 0 ? repos.join(', ') : 'none configured'}
 
 IMPORTANT: You can READ actual code files! If someone asks about code in a repo, guide them to use "read file <repo> <path>" or search for it with "search <repo> <query>".
 
-OTHER SKILLS:
-- Memory: "remember <fact>" / "my facts" - I remember things about you
-- Tasks: "add task <task>" / "my tasks" - track your todos
-- Reminders: "remind me <when> to <what>"
-- Research: "research <topic>" - web search (if configured)
-- Status: "status" - check bot health
-- Help: "help" - see all commands
+📊 ACCOUNTANCY & COMPANY MANAGEMENT:
+- "deadlines" - view upcoming company filing deadlines
+- "due this week" / "overdue" - urgent deadlines
+- "companies" - list all Giquina group companies
+- "company <code>" - details for GMH, GACC, GCAP, GQCARS, GSPV
+- "directors" - list company directors
+- "can I <action>?" - check if action needs approval (governance)
+- "who approves <action>" - see required authorization level
+- "intercompany" / "loans" - view intercompany loans
+- "record loan" - track new intercompany transaction
+
+📝 PRODUCTIVITY:
+- "digest" / "today" - daily summary with deadlines + GitHub
+- "morning summary" - full morning brief
+- "tonight <task>" - queue task for overnight AI processing
+- "my queue" - see overnight queue
+
+💾 MEMORY & TASKS:
+- "remember <fact>" / "my facts" - I remember things about you
+- "add task <task>" / "my tasks" - track your todos
+- "remind me <when> to <what>" - set reminders
+
+🦞 MOLTBOOK (AI Social Network):
+- "join moltbook" - connect to Moltbook
+- "post to moltbook: <message>" - post to Moltbook
+- "moltbook feed" - see what other AIs are posting
+- "moltbook status" - check connection
+
+🔧 SYSTEM:
+- "help" / "skills" - see all commands
+- "status" - check bot health
+- Send voice message → transcription
+
+${this.getDynamicSkillDocs()}
 
 HOW TO TALK:
 - Casual and friendly, like texting a friend
@@ -190,6 +225,20 @@ Don't sign off messages - just end naturally with a relevant emoji if appropriat
      */
     clearHistory() {
         this.conversationHistory = [];
+    }
+
+    /**
+     * Get dynamic skill documentation from registry
+     * This ensures the AI always knows about ALL skills
+     */
+    getDynamicSkillDocs() {
+        if (skillRegistry && typeof skillRegistry.generateSkillDocs === 'function') {
+            const docs = skillRegistry.generateSkillDocs();
+            if (docs && docs.length > 50) {
+                return `\n📋 ALL AVAILABLE COMMANDS (auto-generated):\n${docs}`;
+            }
+        }
+        return ''; // Return empty if skills not loaded yet
     }
 }
 
