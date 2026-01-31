@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  # WhatsApp Bot Service
+  whatsapp-bot:
+    build:
+      context: ..
+      dockerfile: 05-docker/Dockerfile
+    container_name: clawd-bot
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    env_file:
+      - ../config/.env.local
+    depends_on:
+      - llama
+    networks:
+      - clawd-network
+    volumes:
+      - bot-logs:/app/logs
+
+  # Llama AI Service
+  llama:
+    image: ollama/ollama:latest
+    container_name: clawd-llama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    networks:
+      - clawd-network
+    volumes:
+      - llama-models:/root/.ollama
+    command: serve
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  clawd-network:
+    driver: bridge
+
+volumes:
+  bot-logs:
+  llama-models:

@@ -134,6 +134,7 @@ $userDataBytes = [System.Text.Encoding]::UTF8.GetBytes($userData)
 $userDataBase64 = [Convert]::ToBase64String($userDataBytes)
 
 # Launch instance
+$tagSpec = 'ResourceType=instance,Tags=[{Key=Name,Value=ClawdBot}]'
 $instanceResult = aws ec2 run-instances `
     --image-id ami-0c76bd4bd302b30ec `
     --instance-type t2.micro `
@@ -141,7 +142,7 @@ $instanceResult = aws ec2 run-instances `
     --security-group-ids $sgId `
     --user-data $userDataBase64 `
     --region $awsRegion `
-    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=ClawdBot}]" | ConvertFrom-Json
+    --tag-specifications $tagSpec | ConvertFrom-Json
 
 $instanceId = $instanceResult.Instances[0].InstanceId
 Write-Host "   Instance launched: $instanceId" -ForegroundColor Green

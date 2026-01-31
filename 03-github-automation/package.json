@@ -1,0 +1,12 @@
+{
+  "name": "clawd-bot-github-automation",
+  "version": "1.0.0",
+  "description": "GitHub automation and code analysis for ClawdBot",
+  "main": "code-analyzer.js",
+  "dependencies": {
+    "@octokit/rest": "^20.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
