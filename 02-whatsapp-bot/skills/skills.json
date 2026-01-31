@@ -7,7 +7,22 @@
     "morning-brief",
     "research",
     "vercel",
-    "reminders"
+    "reminders",
+    "moltbook",
+    "deadlines",
+    "companies",
+    "governance",
+    "intercompany",
+    "digest",
+    "overnight",
+    "receipts",
+    "coder",
+    "review",
+    "stats",
+    "actions",
+    "multi-repo",
+    "project-creator",
+    "voice"
   ],
   "disabled": [],
   "config": {
@@ -27,6 +42,21 @@
     "reminders": {
       "maxReminders": 50,
       "maxDelayHours": 24
-    }
+    },
+    "moltbook": {},
+    "deadlines": {},
+    "companies": {},
+    "governance": {},
+    "intercompany": {},
+    "digest": {},
+    "overnight": {},
+    "receipts": {},
+    "coder": {},
+    "review": {},
+    "stats": {},
+    "actions": {},
+    "multi-repo": {},
+    "project-creator": {},
+    "voice": {}
   }
 }
