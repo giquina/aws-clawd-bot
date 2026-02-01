@@ -3,11 +3,18 @@
   "version": "1.0.0",
   "description": "WhatsApp interface for ClawdBot AI coding agent",
   "main": "index.js",
+  "overrides": {
+    "fast-xml-parser": "5.3.4"
+  },
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
     "test": "node ../scripts/test-bot.js",
-    "setup": "node ../scripts/setup.js"
+    "setup": "node ../scripts/setup.js",
+    "audit": "npm audit",
+    "audit:fix": "npm audit fix",
+    "preinstall": "npm audit || true",
+    "security-check": "npm audit --audit-level=high"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -22,9 +29,9 @@
     "twilio": "^4.19.0"
   },
   "devDependencies": {
-    "@aws-sdk/client-ec2": "^3.980.0",
-    "@aws-sdk/client-ec2-instance-connect": "^3.980.0",
-    "@aws-sdk/client-ssm": "^3.980.0",
+    "@aws-sdk/client-ec2": "3.893.0",
+    "@aws-sdk/client-ec2-instance-connect": "3.893.0",
+    "@aws-sdk/client-ssm": "3.893.0",
     "nodemon": "^3.0.2"
   },
   "engines": {
