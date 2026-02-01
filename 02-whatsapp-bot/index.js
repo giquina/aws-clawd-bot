@@ -314,6 +314,11 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
             extractAndSaveFacts(userId, incomingMsg);
         }
 
+        // Truncate response if too long for WhatsApp (max 1600 chars)
+        if (responseText.length > 1550) {
+            responseText = responseText.substring(0, 1500) + '\n\n_[Message truncated - type a more specific command]_';
+        }
+
         // Send response via Twilio (async - not in webhook response)
         await twilioClient.messages.create({
             body: responseText,

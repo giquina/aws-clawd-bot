@@ -59,60 +59,45 @@ class HelpSkill extends BaseSkill {
   }
 
   /**
-   * Show all available commands grouped by skill
+   * Show all available commands - condensed for WhatsApp (max 1600 chars)
    */
   showAllCommands() {
     const skills = registry.listSkills();
-    const groupBySkill = this.config.groupBySkill !== false;
 
     if (skills.length === 0) {
       return this.success('No skills are currently loaded.');
     }
 
-    let message = '*ClawdBot Commands*\n';
-    message += '━━━━━━━━━━━━━━━━━━━━\n\n';
+    // Condensed help - grouped by category
+    let message = '*ClawdBot* - Your AI Assistant\n\n';
 
-    if (groupBySkill) {
-      // Group commands by skill
-      for (const skill of skills) {
-        if (skill.commands.length === 0) continue;
+    message += '*GitHub & Code*\n';
+    message += '• list repos, search <repo> <query>\n';
+    message += '• create branch, create pr, fix issue\n';
+    message += '• review pr, workflows, stats\n\n';
 
-        message += `*${this.capitalize(skill.name)}*`;
-        if (skill.description) {
-          message += ` - ${skill.description}`;
-        }
-        message += '\n';
+    message += '*Accountancy*\n';
+    message += '• deadlines, companies, company <code>\n';
+    message += '• can I <action>?, loans, ic balance\n\n';
 
-        for (const cmd of skill.commands) {
-          const usage = cmd.usage || this.patternToUsage(cmd.pattern);
-          message += `  • \`${usage}\``;
-          if (cmd.description) {
-            message += ` - ${cmd.description}`;
-          }
-          message += '\n';
-        }
-        message += '\n';
-      }
-    } else {
-      // Flat list of all commands
-      const allCommands = [];
-      for (const skill of skills) {
-        for (const cmd of skill.commands) {
-          allCommands.push({
-            usage: cmd.usage || this.patternToUsage(cmd.pattern),
-            description: cmd.description,
-            skill: skill.name
-          });
-        }
-      }
+    message += '*Productivity*\n';
+    message += '• Send receipt photo → auto-extract\n';
+    message += '• digest, tasks, reminders\n';
+    message += '• remember <fact>, tonight <task>\n\n';
 
-      for (const cmd of allCommands) {
-        message += `• \`${cmd.usage}\` - ${cmd.description || 'No description'}\n`;
-      }
-    }
+    message += '*Media*\n';
+    message += '• Send image → AI describes it\n';
+    message += '• Send PDF → text extracted\n';
+    message += '• Send voice → transcribed\n\n';
 
-    message += '━━━━━━━━━━━━━━━━━━━━\n';
-    message += `_${skills.length} skill(s) loaded_`;
+    message += '*Social*\n';
+    message += '• moltbook feed, post to moltbook\n\n';
+
+    message += '*System*\n';
+    message += '• help, status, skills\n\n';
+
+    message += `_${skills.length} skills loaded_\n`;
+    message += '_Type "help <skill>" for details_';
 
     return this.success(message);
   }
