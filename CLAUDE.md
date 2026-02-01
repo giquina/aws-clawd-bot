@@ -15,7 +15,14 @@ ClawdBot v2.3 is a WhatsApp-controlled **Claude Code Agent** running 24/7 on AWS
 cd 02-whatsapp-bot && npm install
 npm run dev                    # Development with nodemon auto-reload
 npm start                      # Production mode
+npm run test                   # Run bot tests
 curl localhost:3000/health     # Health check
+
+# Security
+npm run audit                  # Check for vulnerabilities
+npm run audit:fix              # Auto-fix vulnerabilities
+npm run security-check         # High severity check for CI
+node scripts/setup-hooks.js    # Install pre-commit security hook
 
 # Deploy to AWS EC2
 tar -czvf /tmp/clawd-bot.tar.gz --exclude='node_modules' --exclude='.git' .
@@ -23,13 +30,21 @@ scp -i ~/.ssh/clawd-bot-key.pem /tmp/clawd-bot.tar.gz ubuntu@16.171.150.151:/tmp
 ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 \
   "cd /opt/clawd-bot && sudo tar -xzf /tmp/clawd-bot.tar.gz && pm2 restart clawd-bot"
 
-# EC2 Instance Connect (if SSH permission denied)
+# SSH to EC2 (alternative if permission denied)
 aws ec2-instance-connect send-ssh-public-key \
   --instance-id i-009f070a76a0d91c1 \
   --instance-os-user ubuntu \
   --ssh-public-key file://~/.ssh/clawd-bot-key.pem.pub \
   --region eu-north-1
 ```
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/webhook` | POST | Twilio WhatsApp webhook (incoming messages) |
+| `/github-webhook` | POST | GitHub webhook (events: push, PR, issues) |
+| `/health` | GET | Health check and status information |
 
 ## Architecture
 
