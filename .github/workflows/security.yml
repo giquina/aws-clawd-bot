@@ -1,14 +1,15 @@
 name: Security Audit
 
+# DISABLED - GitHub billing issue preventing Actions
+# Re-enable when billing is resolved
 on:
-  push:
-    branches: [master, main]
-  pull_request:
-    branches: [master, main]
-  schedule:
-    # Run daily at 6 AM UTC
-    - cron: '0 6 * * *'
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch: # Manual trigger only for now
+  # push:
+  #   branches: [master, main]
+  # pull_request:
+  #   branches: [master, main]
+  # schedule:
+  #   - cron: '0 6 * * *'
 
 jobs:
   audit:
