@@ -7,11 +7,11 @@
 
 const intentClassifier = require('./intent-classifier');
 const activeProject = require('./active-project');
-const ProjectManager = require('./project-manager');
+const projectManager = require('./project-manager'); // Functions, not a class
 
 class ProjectIntelligence {
   constructor() {
-    this.projectManager = new ProjectManager();
+    this.projectManager = projectManager; // Use the exported functions directly
     this.userContexts = new Map(); // Extended context per user
   }
 
