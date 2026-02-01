@@ -1,12 +1,12 @@
 /**
  * Voice Skill - Transcribe voice messages using Groq Whisper (FREE)
  *
- * Handles voice notes sent via WhatsApp:
- * - Short messages: Transcribe and process as command
- * - Long messages (>2 min): Meeting mode - transcribe + summarize + action items
+ * Now with Project Intelligence integration:
+ * - Short messages: Transcribe → Classify intent → Route to project
+ * - Long messages: Transcribe → Extract tasks → Route to multiple projects
  *
  * Commands:
- *   [voice message]     - Transcribe and process
+ *   [voice message]     - Transcribe and intelligently process
  *   meeting mode        - Force meeting analysis on next voice note
  *   voice help          - Show voice capabilities
  */
@@ -14,6 +14,14 @@ const BaseSkill = require('../base-skill');
 const Anthropic = require('@anthropic-ai/sdk');
 const https = require('https');
 const http = require('http');
+
+// Project Intelligence integration
+let projectIntelligence = null;
+try {
+  projectIntelligence = require('../../lib/project-intelligence');
+} catch (e) {
+  console.log('[Voice] Project Intelligence not available');
+}
 
 class VoiceSkill extends BaseSkill {
   name = 'voice';
@@ -199,38 +207,79 @@ class VoiceSkill extends BaseSkill {
   }
 
   /**
-   * Process short voice notes - transcribe and optionally process as command
+   * Process short voice notes - transcribe and intelligently route
    */
   async processShortVoice(transcript, context) {
     const wordCount = transcript.split(/\s+/).length;
 
-    // If it's a very short message, might be a command
-    if (wordCount <= 10) {
-      return this.success(
-        `*Transcription:*\n"${transcript}"\n\n` +
-        `_Processing as command..._`,
-        { transcription: transcript, executeAsCommand: true }
-      );
+    // Use Project Intelligence to classify intent
+    let intelligence = null;
+    if (projectIntelligence) {
+      try {
+        intelligence = await projectIntelligence.process(transcript, context);
+        this.log('info', `Intelligence: intent=${intelligence.intent}, project=${intelligence.project}, confidence=${intelligence.confidence}`);
+      } catch (e) {
+        this.log('error', 'Project Intelligence failed', e);
+      }
     }
 
-    // Otherwise, just return the transcription
-    let response = `*Voice Transcription* 🎙️\n\n`;
-    response += `"${transcript}"\n\n`;
-    response += `_${wordCount} words_`;
+    // Build response
+    let response = `*🎙️ You said:*\n"${transcript}"\n`;
+
+    // If we identified a project/intent with good confidence
+    if (intelligence && intelligence.confidence > 0.6) {
+      response += `\n*Detected:* ${intelligence.intent || 'general query'}`;
+
+      if (intelligence.project) {
+        response += `\n*Project:* ${intelligence.project}`;
+        if (intelligence.projectDetails?.description) {
+          response += ` - _${intelligence.projectDetails.description}_`;
+        }
+      }
+
+      if (intelligence.company) {
+        response += `\n*Company:* ${intelligence.company}`;
+      }
+
+      // If this is a command, mark for execution
+      if (wordCount <= 15 || intelligence.suggestedSkill) {
+        return this.success(response + '\n\n_Processing..._', {
+          transcription: transcript,
+          executeAsCommand: true,
+          intelligence: intelligence
+        });
+      }
+    }
+
+    response += `\n_${wordCount} words_`;
 
     // Truncate if too long
     if (response.length > 1500) {
       response = response.substring(0, 1450) + '..."\n\n_[Truncated]_';
     }
 
-    return this.success(response);
+    return this.success(response, {
+      transcription: transcript,
+      intelligence: intelligence
+    });
   }
 
   /**
-   * Process long recordings as meetings - full analysis
+   * Process long recordings - full analysis with Project Intelligence
    */
   async processMeetingTranscript(transcript, audioSizeMB, userId) {
     const wordCount = transcript.split(/\s+/).length;
+
+    // Try Project Intelligence for task extraction first
+    let extractedTasks = null;
+    if (projectIntelligence) {
+      try {
+        extractedTasks = await projectIntelligence.processVoiceTranscript(transcript, { userId });
+        this.log('info', `Extracted ${extractedTasks.tasks?.length || 0} tasks from voice`);
+      } catch (e) {
+        this.log('error', 'Task extraction failed', e);
+      }
+    }
 
     // Initialize Claude for analysis
     if (!this.claude && process.env.ANTHROPIC_API_KEY) {
@@ -238,7 +287,6 @@ class VoiceSkill extends BaseSkill {
     }
 
     if (!this.claude) {
-      // Can't analyze, just return transcript in chunks
       return this.returnTranscriptInChunks(transcript, wordCount, audioSizeMB);
     }
 
@@ -251,7 +299,7 @@ class VoiceSkill extends BaseSkill {
         max_tokens: 2000,
         messages: [{
           role: 'user',
-          content: `Analyze this meeting/conversation transcript and provide a structured summary.
+          content: `Analyze this voice message transcript and provide a structured summary.
 
 TRANSCRIPT:
 ${transcript.substring(0, 30000)}
@@ -267,37 +315,43 @@ Provide your analysis in this EXACT format (keep it concise for WhatsApp):
 • [Point 3]
 
 **ACTION ITEMS**
-• [Action 1] - [Owner if mentioned]
-• [Action 2] - [Owner if mentioned]
+• [Action 1]
+• [Action 2]
 
-**DECISIONS MADE**
-• [Decision 1]
-• [Decision 2]
-
-**FOLLOW-UPS NEEDED**
-• [Follow-up 1]
-• [Follow-up 2]
-
-Keep each section brief. Total response under 1400 characters.`
+Keep each section brief. Total response under 1200 characters.`
         }]
       });
 
       const analysisText = analysis.content[0].text.trim();
 
-      // Prepare response
-      let response = `*Meeting Analysis* 🎙️\n`;
+      // Build response with Project Intelligence insights
+      let response = `*🎙️ Voice Analysis*\n`;
       response += `_${wordCount} words | ${audioSizeMB}MB_\n\n`;
       response += analysisText;
 
-      // If response is still too long, truncate smartly
+      // Add extracted tasks with project routing
+      if (extractedTasks && extractedTasks.tasks && extractedTasks.tasks.length > 0) {
+        response += '\n\n*📋 Tasks by Project:*';
+        const byProject = extractedTasks.byProject || {};
+        for (const [project, tasks] of Object.entries(byProject)) {
+          response += `\n_${project}:_`;
+          for (const task of tasks.slice(0, 3)) { // Max 3 per project
+            const emoji = task.priority === 'high' ? '🔴' : task.priority === 'medium' ? '🟡' : '🟢';
+            response += `\n${emoji} ${task.task}`;
+          }
+        }
+      }
+
+      // Truncate if too long
       if (response.length > 1500) {
-        response = response.substring(0, 1450) + '\n\n_[See next message for more]_';
+        response = response.substring(0, 1450) + '\n\n_[Truncated]_';
       }
 
       return this.success(response, {
         transcript: transcript,
         wordCount: wordCount,
-        analyzed: true
+        analyzed: true,
+        tasks: extractedTasks?.tasks || []
       });
 
     } catch (err) {

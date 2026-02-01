@@ -36,6 +36,16 @@ const githubWebhook = require('./github-webhook');
 let memory = null;
 let skillRegistry = null;
 let scheduler = null;
+let projectIntelligence = null;
+
+// Try to load Project Intelligence (the brain)
+try {
+    projectIntelligence = require('./lib/project-intelligence');
+    projectIntelligence.initialize();
+    console.log('✅ Project Intelligence loaded');
+} catch (err) {
+    console.log('⚠️  Project Intelligence not available:', err.message);
+}
 
 // Try to load memory system
 try {

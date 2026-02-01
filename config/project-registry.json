@@ -1,0 +1,236 @@
+{
+  "version": "1.0",
+  "description": "Project Intelligence Registry - Maps projects to capabilities for smart routing",
+
+  "projects": {
+    "aws-clawd-bot": {
+      "repo": "giquina/aws-clawd-bot",
+      "type": "infrastructure",
+      "description": "WhatsApp AI Assistant - the bot itself",
+      "stack": ["Node.js", "Express", "Twilio", "Claude API"],
+      "capabilities": ["skills", "commands", "ai-chat", "scheduling", "github-integration"],
+      "keywords": ["bot", "clawd", "clawdbot", "skill", "command", "whatsapp", "assistant"],
+      "priority": 1
+    },
+
+    "giquina-accountancy": {
+      "repo": "giquina/giquina-accountancy-direct-filing",
+      "type": "business-ops",
+      "description": "Tax filing, HMRC MTD, Companies House submissions",
+      "stack": ["Node.js", "XML", "APIs"],
+      "capabilities": ["taxes", "vat", "corporation-tax", "annual-accounts", "confirmation-statement", "receipts", "expenses", "hmrc", "companies-house"],
+      "keywords": ["tax", "taxes", "vat", "receipt", "expense", "file", "filing", "hmrc", "deadline", "accounts", "accountancy", "accounting", "invoice", "corporation"],
+      "companies": ["GMH", "GACC", "GCAP", "GQCARS", "GSPV"],
+      "priority": 2
+    },
+
+    "LusoTown": {
+      "repo": "giquina/LusoTown",
+      "type": "web-app",
+      "description": "Portuguese community platform",
+      "stack": ["Next.js", "React", "Tailwind", "TypeScript"],
+      "capabilities": ["pages", "components", "api-routes", "authentication", "database"],
+      "keywords": ["lusotown", "luso", "portuguese", "community", "website", "page", "feature"],
+      "priority": 3
+    },
+
+    "JUDO": {
+      "repo": "giquina/JUDO",
+      "type": "mobile-app",
+      "description": "Martial arts training app",
+      "stack": ["React Native", "Expo"],
+      "capabilities": ["screens", "features", "training", "progress-tracking"],
+      "keywords": ["judo", "martial", "training", "app", "workout", "technique"],
+      "priority": 3
+    },
+
+    "GQCars": {
+      "repo": "giquina/GQCars",
+      "type": "business-ops",
+      "description": "GQ Cars main business operations",
+      "stack": ["Various"],
+      "capabilities": ["fleet", "bookings", "customers", "vehicles"],
+      "keywords": ["gqcars", "gq cars", "car", "vehicle", "fleet", "driver", "booking", "taxi", "hire"],
+      "relatedRepos": ["gqcars-manager", "gq-cars-driver-app"],
+      "priority": 2
+    },
+
+    "gqcars-manager": {
+      "repo": "giquina/gqcars-manager",
+      "type": "web-app",
+      "description": "GQ Cars management dashboard",
+      "stack": ["React", "Node.js"],
+      "capabilities": ["dashboard", "fleet-management", "bookings", "reports"],
+      "keywords": ["manager", "dashboard", "admin", "gqcars management"],
+      "priority": 4
+    },
+
+    "gq-cars-driver-app": {
+      "repo": "giquina/gq-cars-driver-app",
+      "type": "mobile-app",
+      "description": "Driver app for GQ Cars",
+      "stack": ["React Native"],
+      "capabilities": ["driver-interface", "jobs", "navigation", "earnings"],
+      "keywords": ["driver", "driver app", "gqcars driver"],
+      "priority": 4
+    },
+
+    "MAG-Music-Records": {
+      "repo": "giquina/MAG-Music-Records",
+      "type": "creative",
+      "description": "Music production workflow for Suno AI",
+      "stack": ["Suno AI", "Audio"],
+      "capabilities": ["music", "production", "ai-generation", "tracks"],
+      "keywords": ["music", "mag", "suno", "track", "song", "production", "audio", "record"],
+      "priority": 5
+    },
+
+    "armora": {
+      "repo": "giquina/armora",
+      "type": "web-app",
+      "description": "Armora platform",
+      "stack": ["TBD"],
+      "capabilities": ["security", "protection"],
+      "keywords": ["armora", "security"],
+      "priority": 5
+    },
+
+    "armoracpo": {
+      "repo": "giquina/armoracpo",
+      "type": "web-app",
+      "description": "Armora CPO platform",
+      "stack": ["TBD"],
+      "capabilities": ["cpo", "security"],
+      "keywords": ["armora", "cpo"],
+      "priority": 6
+    },
+
+    "Landvest": {
+      "repo": "giquina/Landvest",
+      "type": "web-app",
+      "description": "Real estate investment platform",
+      "stack": ["TBD"],
+      "capabilities": ["properties", "investments", "listings"],
+      "keywords": ["landvest", "land", "property", "real estate", "investment"],
+      "priority": 5
+    },
+
+    "BuildMate": {
+      "repo": "giquina/BuildMate",
+      "type": "web-app",
+      "description": "Construction/building platform",
+      "stack": ["TBD"],
+      "capabilities": ["projects", "contractors", "building"],
+      "keywords": ["buildmate", "build", "construction", "contractor"],
+      "priority": 5
+    },
+
+    "BankingLaw": {
+      "repo": "giquina/BankingLaw",
+      "type": "web-app",
+      "description": "Banking law resources",
+      "stack": ["TBD"],
+      "capabilities": ["legal", "banking", "compliance"],
+      "keywords": ["banking", "law", "legal", "finance", "compliance"],
+      "priority": 5
+    },
+
+    "wandermood": {
+      "repo": "giquina/wandermood",
+      "type": "mobile-app",
+      "description": "Travel/mood app",
+      "stack": ["TBD"],
+      "capabilities": ["travel", "mood", "journaling"],
+      "keywords": ["wandermood", "travel", "mood", "journey"],
+      "priority": 5
+    },
+
+    "sohofashion": {
+      "repo": "giquina/sohofashion",
+      "type": "web-app",
+      "description": "Fashion platform",
+      "stack": ["TBD"],
+      "capabilities": ["fashion", "clothing", "ecommerce"],
+      "keywords": ["soho", "fashion", "clothing", "style"],
+      "priority": 5
+    },
+
+    "AdyaTribe": {
+      "repo": "giquina/AdyaTribe",
+      "type": "web-app",
+      "description": "Adya Tribe community platform",
+      "stack": ["TBD"],
+      "capabilities": ["community", "tribe"],
+      "keywords": ["adya", "tribe", "community"],
+      "priority": 5
+    }
+  },
+
+  "intents": {
+    "create-page": {
+      "patterns": ["create page", "new page", "add page", "build page"],
+      "projectTypes": ["web-app"],
+      "action": "create-component"
+    },
+    "create-feature": {
+      "patterns": ["create feature", "new feature", "add feature", "build feature"],
+      "projectTypes": ["web-app", "mobile-app"],
+      "action": "create-feature"
+    },
+    "file-taxes": {
+      "patterns": ["file tax", "submit tax", "tax return", "vat return", "corporation tax"],
+      "projectTypes": ["business-ops"],
+      "requiredCapability": "taxes",
+      "action": "tax-workflow"
+    },
+    "process-receipt": {
+      "patterns": ["receipt", "expense", "spent", "paid for", "bought"],
+      "projectTypes": ["business-ops"],
+      "requiredCapability": "receipts",
+      "action": "process-receipt"
+    },
+    "check-deadlines": {
+      "patterns": ["deadline", "due date", "when is", "upcoming"],
+      "projectTypes": ["business-ops"],
+      "action": "check-deadlines"
+    },
+    "deploy": {
+      "patterns": ["deploy", "push live", "go live", "release"],
+      "projectTypes": ["web-app", "mobile-app", "infrastructure"],
+      "action": "deploy"
+    },
+    "check-status": {
+      "patterns": ["status", "progress", "what's left", "todo", "tasks"],
+      "projectTypes": ["all"],
+      "action": "check-status"
+    }
+  },
+
+  "companies": {
+    "GMH": {
+      "name": "Giquina Management Holdings Ltd",
+      "number": "15425137",
+      "keywords": ["gmh", "holdings", "management"]
+    },
+    "GACC": {
+      "name": "Giquina Accountancy Ltd",
+      "number": "16396650",
+      "keywords": ["gacc", "accountancy", "accountants"]
+    },
+    "GCAP": {
+      "name": "Giquina Capital Ltd",
+      "number": "16360342",
+      "keywords": ["gcap", "capital"]
+    },
+    "GQCARS": {
+      "name": "GQ Cars Ltd",
+      "number": "15389347",
+      "keywords": ["gqcars", "gq cars", "cars"]
+    },
+    "GSPV": {
+      "name": "Giquina Structured Asset SPV Ltd",
+      "number": "16369465",
+      "keywords": ["gspv", "spv", "structured"]
+    }
+  }
+}
