@@ -16,13 +16,16 @@
     "digest",
     "overnight",
     "receipts",
+    "image-analysis",
     "coder",
     "review",
     "stats",
     "actions",
     "multi-repo",
     "project-creator",
-    "voice"
+    "voice",
+    "video",
+    "files"
   ],
   "disabled": [],
   "config": {
@@ -51,12 +54,15 @@
     "digest": {},
     "overnight": {},
     "receipts": {},
+    "image-analysis": {},
     "coder": {},
     "review": {},
     "stats": {},
     "actions": {},
     "multi-repo": {},
     "project-creator": {},
-    "voice": {}
+    "voice": {},
+    "video": {},
+    "files": {}
   }
 }

@@ -7,13 +7,13 @@ This file provides guidance to AI coding assistants (Claude, GPT, Copilot, Curso
 A WhatsApp-controlled AI coding assistant running 24/7 on AWS EC2. Send commands via WhatsApp to write code, create PRs, trigger workflows, manage GitHub repos, track company deadlines, and more.
 
 **Live:** `16.171.150.151:3000` (eu-north-1)
-**Skills:** 23 loaded (auto-documented)
+**Skills:** 26 loaded (auto-documented)
 **Hooks:** Error alerting, Smart NLP routing
 
 ## Architecture
 
 ```
-WhatsApp → Twilio → Express (index.js) → Hooks → Skills Router (22 skills)
+WhatsApp → Twilio → Express (index.js) → Hooks → Skills Router (26 skills)
                                            ↓
                     ┌──────────────────────┼──────────────────────┐
                     ↓                      ↓                      ↓
@@ -27,7 +27,7 @@ GitHub/Code    Accountancy      Productivity     AI/Social      Scheduler
                companies)        receipts)        voice)         alerts)
 ```
 
-## Skills (23 loaded)
+## Skills (26 loaded)
 
 | Category | Skill | Priority | Key Commands |
 |----------|-------|----------|--------------|
@@ -49,6 +49,9 @@ GitHub/Code    Accountancy      Productivity     AI/Social      Scheduler
 | | `memory` | 50 | `remember`, `my facts` |
 | | `reminders` | 30 | `remind me` |
 | **Social** | `moltbook` | 40 | `post to moltbook`, `moltbook feed`, `join moltbook` |
+| **Media** | `image-analysis` | 25 | Send image → AI describes it |
+| | `video` | 20 | Send video → acknowledged, options shown |
+| | `files` | 15 | Send PDF/doc → text extracted, summarized |
 | **System** | `voice` | 99 | Send voice → transcribe |
 | | `help` | 100 | `help`, `status`, `skills` |
 
@@ -94,7 +97,7 @@ ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 \
 |------|---------|
 | `02-whatsapp-bot/index.js` | Main webhook server |
 | `02-whatsapp-bot/hooks/` | Error alerter, smart router |
-| `02-whatsapp-bot/skills/` | 21 skill modules |
+| `02-whatsapp-bot/skills/` | 26 skill modules |
 | `02-whatsapp-bot/scheduler/` | Cron jobs, proactive alerts |
 | `config/.env.local` | Environment variables |
 
