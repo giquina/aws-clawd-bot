@@ -258,7 +258,14 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
         const { numMedia, mediaUrl, mediaContentType } = mediaContext;
 
         // Preprocess message through hooks (natural language -> command)
-        const processedMsg = await hooks.preprocess(incomingMsg, { userId, fromNumber });
+        // Pass media context so hooks can skip routing for voice/media messages
+        const processedMsg = await hooks.preprocess(incomingMsg, {
+            userId,
+            fromNumber,
+            numMedia,
+            mediaUrl,
+            mediaContentType
+        });
 
         // Try skill registry first
         if (skillRegistry) {
