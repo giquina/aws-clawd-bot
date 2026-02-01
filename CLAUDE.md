@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ClawdBot v2.2 is a WhatsApp-controlled AI coding assistant running 24/7 on AWS EC2. Users send commands via WhatsApp (through Twilio), which triggers skills to interact with GitHub, track company deadlines, manage tasks, and more. Includes an autonomous agent system for nightly task execution.
+ClawdBot v2.3 is a WhatsApp-controlled **Claude Code Agent** running 24/7 on AWS EC2. It's a full development assistant you control via WhatsApp - read any repo, parse TODOs, deploy code, run tests, and get proactive morning reports. Includes multi-AI routing (Groq FREE, Claude Opus/Sonnet, Grok) and an autonomous agent system for nightly task execution.
 
 **Live Server:** `16.171.150.151:3000` (eu-north-1)
 
@@ -34,7 +34,7 @@ aws ec2-instance-connect send-ssh-public-key \
 ## Architecture
 
 ```
-WhatsApp → Twilio → Express (index.js) → Hooks → Skills Router (28 skills)
+WhatsApp → Twilio → Express (index.js) → Hooks → Skills Router (30 skills)
                                            ↓
                     ┌──────────────────────┼──────────────────────┐
                     ↓                      ↓                      ↓
@@ -105,7 +105,7 @@ ClawdBot uses smart AI routing to minimize costs:
 | File | Purpose |
 |------|---------|
 | `02-whatsapp-bot/index.js` | Express server, webhook handlers |
-| `02-whatsapp-bot/ai-handler.js` | Multi-AI router, system prompt |
+| `02-whatsapp-bot/ai-handler.js` | Multi-AI router, project context, system prompt |
 | `02-whatsapp-bot/ai-providers/index.js` | AI provider registry |
 | `02-whatsapp-bot/ai-providers/router.js` | Smart query classification |
 | `02-whatsapp-bot/ai-providers/groq-handler.js` | Groq LLM + Whisper (FREE) |
@@ -113,8 +113,15 @@ ClawdBot uses smart AI routing to minimize costs:
 | `02-whatsapp-bot/ai-providers/grok-handler.js` | Grok xAI (social) |
 | `02-whatsapp-bot/skills/skill-registry.js` | Skill routing, dynamic docs |
 | `02-whatsapp-bot/skills/skills.json` | Enabled skills config |
+| `02-whatsapp-bot/skills/project-context/index.js` | Project awareness, TODO parsing |
+| `02-whatsapp-bot/skills/remote-exec/index.js` | Safe EC2 command execution |
+| `02-whatsapp-bot/lib/project-manager.js` | GitHub file fetching, caching |
+| `02-whatsapp-bot/lib/todo-parser.js` | TODO.md parsing |
+| `02-whatsapp-bot/lib/active-project.js` | Per-user project context |
+| `02-whatsapp-bot/lib/command-whitelist.js` | Security for remote exec |
 | `02-whatsapp-bot/hooks/smart-router.js` | NLP → command conversion |
 | `02-whatsapp-bot/autonomous/index.js` | Autonomous agent orchestrator |
+| `02-whatsapp-bot/autonomous/morning-report.js` | Enhanced morning reports with TODO |
 | `02-whatsapp-bot/autonomous/task-executor.js` | Executes queued tasks |
 | `02-whatsapp-bot/autonomous/project-scanner.js` | Scans projects for issues |
 | `02-whatsapp-bot/scheduler/jobs/nightly-autonomous.js` | Triggers autonomous runs |
@@ -166,11 +173,51 @@ Used by accountancy skills (deadlines, governance, intercompany):
 | GQCARS | GQ Cars Ltd | 15389347 |
 | GSPV | Giquina Structured Asset SPV Ltd | 16369465 |
 
+## Claude Code Agent System (v2.3)
+
+The bot functions as a full Claude Code agent controllable via WhatsApp:
+
+### Project Context Skill (`skills/project-context/`)
+```
+my repos                    → List ALL your GitHub repos
+switch to <repo>            → Set active project context
+project status [repo]       → Show TODO.md tasks
+what's left [repo]          → Incomplete tasks summary
+readme [repo]               → README summary
+files [repo]                → List key project files
+```
+
+### Remote Exec Skill (`skills/remote-exec/`)
+```
+deploy <repo>               → Deploy with confirmation
+run tests <repo>            → npm test
+logs <repo>                 → PM2 logs
+restart <repo>              → pm2 restart
+build <repo>                → npm run build
+remote status               → Show all PM2 processes
+remote commands             → List allowed commands
+```
+
+### Lib Utilities (`lib/`)
+| File | Purpose |
+|------|---------|
+| `project-manager.js` | GitHub file fetching with 60-min cache |
+| `todo-parser.js` | Parses TODO.md (⬜🟡✅ + checkboxes) |
+| `active-project.js` | Per-user project context (2hr expiry) |
+| `command-whitelist.js` | Security controls for remote exec |
+
+### Natural Language (voice-friendly)
+The smart router handles casual speech:
+- "what's left on judo" → `project status judo`
+- "deploy clawd to production" → `deploy aws-clawd-bot`
+- "what should I work on" → `project status` (uses active project)
+
 ## Skill Categories
 
 | Category | Skills |
 |----------|--------|
 | **Core** | help, memory, tasks, reminders |
+| **Claude Code Agent** | project-context, remote-exec |
 | **GitHub** | github, coder, review, stats, actions, multi-repo, project-creator |
 | **Accountancy** | deadlines, companies, governance, intercompany, receipts, moltbook |
 | **Media** | image-analysis, voice, video, files |
