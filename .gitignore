@@ -76,3 +76,10 @@ test-clawd.db
 # Local development
 .local/
 local-config.json
+
+# Runtime data (autonomous agent, reports)
+02-whatsapp-bot/data/
+data/
+
+# Windows artifacts
+nul
