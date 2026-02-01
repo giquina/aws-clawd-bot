@@ -65,6 +65,10 @@ class SmartRouter {
       /^(company number|deadlines)\s+[A-Z]{2,}/i,
       // Already structured
       /^(summary|receipts|pending|due)/i,
+      // Project context commands
+      /^(project status|readme|project files|switch to|my repos)/i,
+      // Remote execution commands
+      /^(run tests|deploy|logs|restart|build|install|exec)/i,
     ];
     return commandPatterns.some(p => p.test(trimmed));
   }
@@ -136,6 +140,34 @@ class SmartRouter {
       { match: /(tell|show|explain).*(github|claude)/i, command: 'help' },
       { match: /github.*(features|commands|help)/i, command: 'help' },
 
+      // === PROJECT CONTEXT ===
+      { match: /what.*(left|remaining|todo).*(on|for|in)\s+(.+)/i, command: (m) => `project status ${m[3].trim()}` },
+      { match: /project\s+status\s+(.+)/i, command: (m) => `project status ${m[1]}` },
+      { match: /(show|get).*(readme|about)\s+(.+)/i, command: (m) => `readme ${m[3].trim()}` },
+      { match: /what('?s| is)\s+(.+)\s+about/i, command: (m) => `readme ${m[2].trim()}` },
+      { match: /(files|structure)\s+(in|of|for)\s+(.+)/i, command: (m) => `project files ${m[3].trim()}` },
+      { match: /switch\s+to\s+(.+)/i, command: (m) => `switch to ${m[1].trim()}` },
+      { match: /work(ing)?\s+on\s+(.+)/i, command: (m) => `switch to ${m[2].trim()}` },
+      { match: /all\s*(my)?\s*repos/i, command: 'my repos' },
+      { match: /list\s*all\s*repos/i, command: 'my repos' },
+      { match: /what\s*(repos?|projects?)\s+do\s+i\s+have/i, command: 'my repos' },
+      { match: /what('?s| is)\s+left(\s+to\s+do)?$/i, command: 'project status' },
+      { match: /todo\s+list$/i, command: 'project status' },
+
+      // === REMOTE EXECUTION ===
+      { match: /run\s+tests?\s+(on\s+)?(.+)/i, command: (m) => `run tests ${m[2].trim()}` },
+      { match: /test\s+(.+)/i, command: (m) => `run tests ${m[1].trim()}` },
+      { match: /deploy\s+(.+?)(\s+to\s+prod(uction)?)?$/i, command: (m) => `deploy ${m[1].trim()}` },
+      { match: /push\s+(.+)\s+live/i, command: (m) => `deploy ${m[1].trim()}` },
+      { match: /(check|show|view)\s+logs?\s+(for\s+)?(.+)/i, command: (m) => `logs ${m[3].trim()}` },
+      { match: /restart\s+(.+)/i, command: (m) => `restart ${m[1].trim()}` },
+      { match: /rebuild\s+(.+)/i, command: (m) => `build ${m[1].trim()}` },
+
+      // === VOICE COMMANDS ===
+      { match: /what\s+(do\s+i\s+)?need\s+to\s+do\s+(for\s+)?(.+)?/i, command: (m) => m[3] ? `project status ${m[3].trim()}` : 'project status' },
+      { match: /what('?s| is)\s+the\s+status\s+(of\s+)?(.+)?/i, command: (m) => m[3] ? `project status ${m[3].trim()}` : 'status' },
+      { match: /what\s+should\s+i\s+work\s+on/i, command: 'project status' },
+
     ];
 
     for (const { match, command } of patterns) {
@@ -169,6 +201,10 @@ Available commands:
 - intercompany, loans, ic balance
 - workflows, workflows pending
 - help, status
+- project status <repo>, readme <repo>, project files <repo>
+- my repos, switch to <repo>, active project
+- run tests <repo>, deploy <repo>, logs <repo>
+- restart <repo>, build <repo>, install <repo>
 
 Company codes: GMH, GACC, GCAP, GQCARS, GSPV
 

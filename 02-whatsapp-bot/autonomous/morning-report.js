@@ -1,9 +1,16 @@
 /**
- * Morning Report Generator
+ * Morning Report Generator (Phase 4 - Proactive Intelligence)
  *
  * Generates the "surprise progress" report sent each morning after nightly
  * autonomous work. Creates exciting summaries of what ClawdBot accomplished
  * while the user slept.
+ *
+ * Enhanced features (v2.2):
+ * - TODO.md status across all projects
+ * - CI/CD failure detection
+ * - PRs awaiting review
+ * - Urgent company deadlines
+ * - Smart prioritization recommendations
  *
  * @example
  * const { generateReport, formatForWhatsApp, saveReport, getLastReport } = require('./morning-report');
@@ -16,11 +23,55 @@
 const fs = require('fs').promises;
 const path = require('path');
 
+// Try to load optional lib modules (graceful degradation)
+let projectManager = null;
+let todoParser = null;
+try {
+    projectManager = require('../lib/project-manager');
+} catch (e) {
+    console.log('[MorningReport] project-manager not available:', e.message);
+}
+try {
+    todoParser = require('../lib/todo-parser');
+} catch (e) {
+    console.log('[MorningReport] todo-parser not available:', e.message);
+}
+
+// Try to load GitHub automation for API access
+let GitHubAutomation = null;
+try {
+    GitHubAutomation = require('../../03-github-automation/code-analyzer');
+} catch (e) {
+    console.log('[MorningReport] GitHub automation not available:', e.message);
+}
+
+// Try to load deadlines skill for company deadline data
+let DeadlinesSkill = null;
+try {
+    DeadlinesSkill = require('../skills/deadlines');
+} catch (e) {
+    console.log('[MorningReport] Deadlines skill not available:', e.message);
+}
+
 // Data directory for storing reports
 const DATA_DIR = path.join(__dirname, '..', 'data', 'morning-reports');
 
+// Cache for TODO data to avoid hammering GitHub API
+const todoCache = {
+  data: null,
+  timestamp: null,
+  TTL_MS: 30 * 60 * 1000  // 30 minutes cache
+};
+
 /**
  * Generate a structured morning report from nightly work results
+ *
+ * Enhanced to include:
+ * - TODO.md status for all projects
+ * - CI/CD build status
+ * - PRs awaiting review
+ * - Urgent company deadlines
+ * - Smart prioritization recommendations
  *
  * @param {Object} nightlyResults - Results from overnight autonomous work
  * @param {string[]} nightlyResults.reposScanned - Repositories that were analyzed
@@ -34,6 +85,32 @@ const DATA_DIR = path.join(__dirname, '..', 'data', 'morning-reports');
 async function generateReport(nightlyResults = {}) {
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+
+  // Get repos from environment or provided results
+  const reposEnv = process.env.REPOS_TO_MONITOR || '';
+  const repos = reposEnv.split(',').map(r => r.trim()).filter(Boolean);
+
+  // Fetch enhanced data in parallel (with graceful degradation)
+  let todoSummary = [];
+  let cicdStatus = [];
+  let prsAwaitingReview = [];
+  let urgentDeadlines = [];
+
+  try {
+    const [todoData, cicdData, prData, deadlineData] = await Promise.allSettled([
+      getProjectTodoSummary(repos),
+      checkCiCdStatus(repos),
+      getPrsAwaitingReview(repos),
+      getUrgentDeadlines()
+    ]);
+
+    if (todoData.status === 'fulfilled') todoSummary = todoData.value;
+    if (cicdData.status === 'fulfilled') cicdStatus = cicdData.value;
+    if (prData.status === 'fulfilled') prsAwaitingReview = prData.value;
+    if (deadlineData.status === 'fulfilled') urgentDeadlines = deadlineData.value;
+  } catch (err) {
+    console.log('[MorningReport] Error fetching enhanced data:', err.message);
+  }
 
   // Default structure with provided values
   const report = {
@@ -59,10 +136,338 @@ async function generateReport(nightlyResults = {}) {
     insights: nightlyResults.insights || [],
     blockers: nightlyResults.blockers || [],
     recommendations: nightlyResults.recommendations || [],
-    stats: _calculateStats(nightlyResults)
+    stats: _calculateStats(nightlyResults),
+    // Phase 4: Proactive Intelligence additions
+    todoSummary,
+    cicdStatus,
+    prsAwaitingReview,
+    urgentDeadlines,
+    priorityRecommendation: getPriorityRecommendation(todoSummary, cicdStatus, urgentDeadlines, prsAwaitingReview)
   };
 
   return report;
+}
+
+/**
+ * Get TODO summary for all repos
+ * Fetches and parses TODO.md files from each repository
+ *
+ * @param {string[]} repos - Array of repository names
+ * @returns {Promise<Array>} Array of {repo, notStarted, inProgress, completed}
+ */
+async function getProjectTodoSummary(repos) {
+  // Check cache first
+  if (todoCache.data && todoCache.timestamp &&
+      (Date.now() - todoCache.timestamp) < todoCache.TTL_MS) {
+    console.log('[MorningReport] Using cached TODO data');
+    return todoCache.data;
+  }
+
+  if (!GitHubAutomation || !repos || repos.length === 0) {
+    return [];
+  }
+
+  const github = new GitHubAutomation();
+  const summaries = [];
+
+  for (const repoName of repos) {
+    try {
+      // Try to fetch TODO.md
+      const response = await github.octokit.repos.getContent({
+        owner: github.username,
+        repo: repoName,
+        path: 'TODO.md'
+      });
+
+      const content = Buffer.from(response.data.content, 'base64').toString('utf8');
+      const parsed = parseTodoContent(content);
+
+      summaries.push({
+        repo: repoName,
+        notStarted: parsed.notStarted,
+        inProgress: parsed.inProgress,
+        completed: parsed.completed,
+        totalIncomplete: parsed.notStarted + parsed.inProgress
+      });
+    } catch (err) {
+      // TODO.md doesn't exist or fetch failed - skip silently
+      if (err.status !== 404) {
+        console.log(`[MorningReport] Error fetching TODO for ${repoName}:`, err.message);
+      }
+    }
+  }
+
+  // Update cache
+  todoCache.data = summaries;
+  todoCache.timestamp = Date.now();
+
+  return summaries;
+}
+
+/**
+ * Parse TODO.md content to extract task counts
+ * Supports checkbox syntax: [ ] not started, [x] or [X] completed, [-] or [~] in progress
+ *
+ * @param {string} content - Raw TODO.md content
+ * @returns {Object} {notStarted, inProgress, completed}
+ */
+function parseTodoContent(content) {
+  const lines = content.split('\n');
+  let notStarted = 0;
+  let inProgress = 0;
+  let completed = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Match checkbox patterns
+    if (/^\s*[-*]\s*\[\s*\]/.test(trimmed) || /^\s*[-*]\s*\[ \]/.test(trimmed)) {
+      // [ ] or [ ] - not started
+      notStarted++;
+    } else if (/^\s*[-*]\s*\[[xX]\]/.test(trimmed)) {
+      // [x] or [X] - completed
+      completed++;
+    } else if (/^\s*[-*]\s*\[[-~]\]/.test(trimmed) || /^\s*[-*]\s*\[WIP\]/i.test(trimmed)) {
+      // [-] or [~] or [WIP] - in progress
+      inProgress++;
+    }
+  }
+
+  return { notStarted, inProgress, completed };
+}
+
+/**
+ * Check CI/CD status for repositories
+ * Looks for failed workflow runs in the last 24 hours
+ *
+ * @param {string[]} repos - Array of repository names
+ * @returns {Promise<Array>} Array of failed builds {repo, workflow, failedAt, url}
+ */
+async function checkCiCdStatus(repos) {
+  if (!GitHubAutomation || !repos || repos.length === 0) {
+    return [];
+  }
+
+  const github = new GitHubAutomation();
+  const failures = [];
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  for (const repoName of repos) {
+    try {
+      // Get recent workflow runs
+      const response = await github.octokit.actions.listWorkflowRunsForRepo({
+        owner: github.username,
+        repo: repoName,
+        per_page: 10,
+        status: 'failure'
+      });
+
+      for (const run of response.data.workflow_runs) {
+        const runDate = new Date(run.created_at);
+        if (runDate >= oneDayAgo) {
+          failures.push({
+            repo: repoName,
+            workflow: run.name || 'Unknown workflow',
+            failedAt: run.created_at,
+            url: run.html_url,
+            branch: run.head_branch
+          });
+        }
+      }
+    } catch (err) {
+      // Actions might not be enabled or no permission - skip silently
+      if (err.status !== 404 && err.status !== 403) {
+        console.log(`[MorningReport] Error checking CI/CD for ${repoName}:`, err.message);
+      }
+    }
+  }
+
+  return failures;
+}
+
+/**
+ * Get PRs that are awaiting review
+ *
+ * @param {string[]} repos - Array of repository names
+ * @returns {Promise<Array>} Array of PRs {repo, number, title, author, createdAt, url}
+ */
+async function getPrsAwaitingReview(repos) {
+  if (!GitHubAutomation || !repos || repos.length === 0) {
+    return [];
+  }
+
+  const github = new GitHubAutomation();
+  const prs = [];
+
+  for (const repoName of repos) {
+    try {
+      const response = await github.octokit.pulls.list({
+        owner: github.username,
+        repo: repoName,
+        state: 'open',
+        per_page: 10
+      });
+
+      for (const pr of response.data) {
+        // Check if PR has no reviews or is waiting for review
+        try {
+          const reviews = await github.octokit.pulls.listReviews({
+            owner: github.username,
+            repo: repoName,
+            pull_number: pr.number
+          });
+
+          // Consider PR as "awaiting review" if no reviews or last review requested changes
+          const hasApproval = reviews.data.some(r => r.state === 'APPROVED');
+          const lastReview = reviews.data[reviews.data.length - 1];
+          const needsReview = reviews.data.length === 0 ||
+                             (lastReview && lastReview.state === 'CHANGES_REQUESTED');
+
+          if (!hasApproval && needsReview) {
+            prs.push({
+              repo: repoName,
+              number: pr.number,
+              title: pr.title,
+              author: pr.user.login,
+              createdAt: pr.created_at,
+              url: pr.html_url,
+              daysSinceCreated: Math.floor((Date.now() - new Date(pr.created_at)) / (1000 * 60 * 60 * 24))
+            });
+          }
+        } catch (reviewErr) {
+          // If we can't get reviews, add the PR anyway
+          prs.push({
+            repo: repoName,
+            number: pr.number,
+            title: pr.title,
+            author: pr.user.login,
+            createdAt: pr.created_at,
+            url: pr.html_url,
+            daysSinceCreated: Math.floor((Date.now() - new Date(pr.created_at)) / (1000 * 60 * 60 * 24))
+          });
+        }
+      }
+    } catch (err) {
+      if (err.status !== 404) {
+        console.log(`[MorningReport] Error fetching PRs for ${repoName}:`, err.message);
+      }
+    }
+  }
+
+  return prs;
+}
+
+/**
+ * Get urgent company deadlines (due within 7 days)
+ *
+ * @returns {Promise<Array>} Array of deadlines {company, type, dueDate, daysRemaining}
+ */
+async function getUrgentDeadlines() {
+  if (!DeadlinesSkill) {
+    return [];
+  }
+
+  try {
+    const skill = new DeadlinesSkill();
+    const now = new Date();
+    const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const urgentDeadlines = [];
+
+    // Calculate deadlines for each company
+    for (const [code, company] of Object.entries(skill.companies)) {
+      const deadlines = skill.calculateCompanyDeadlines(company, now);
+
+      for (const deadline of deadlines) {
+        if (deadline.dueDate <= sevenDaysFromNow && deadline.dueDate >= now) {
+          const daysRemaining = Math.ceil((deadline.dueDate - now) / (1000 * 60 * 60 * 24));
+          urgentDeadlines.push({
+            company: code,
+            companyName: company.name,
+            type: deadline.type,
+            dueDate: deadline.dueDate.toISOString().split('T')[0],
+            daysRemaining
+          });
+        }
+      }
+    }
+
+    // Sort by due date (earliest first)
+    urgentDeadlines.sort((a, b) => a.daysRemaining - b.daysRemaining);
+
+    return urgentDeadlines;
+  } catch (err) {
+    console.log('[MorningReport] Error getting deadlines:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Get priority recommendation based on all available data
+ * Analyzes TODO status, failures, deadlines and provides actionable guidance
+ *
+ * @param {Array} todoSummary - TODO status for each project
+ * @param {Array} failures - CI/CD failures
+ * @param {Array} deadlines - Urgent company deadlines
+ * @param {Array} prs - PRs awaiting review
+ * @returns {string|null} Priority recommendation or null
+ */
+function getPriorityRecommendation(todoSummary, failures, deadlines, prs) {
+  // Priority order:
+  // 1. CI/CD failures (blocking)
+  // 2. Company deadlines within 3 days
+  // 3. PRs waiting > 3 days
+  // 4. In-progress TODO items
+  // 5. High-count TODO projects
+
+  // Check for CI/CD failures first
+  if (failures && failures.length > 0) {
+    const mostRecent = failures[0];
+    return `Fix build failure on ${mostRecent.repo} (${mostRecent.workflow})`;
+  }
+
+  // Check for urgent deadlines (3 days or less)
+  if (deadlines && deadlines.length > 0) {
+    const urgent = deadlines.filter(d => d.daysRemaining <= 3);
+    if (urgent.length > 0) {
+      const first = urgent[0];
+      return `${first.company} ${first.type} due in ${first.daysRemaining} day(s)`;
+    }
+  }
+
+  // Check for stale PRs
+  if (prs && prs.length > 0) {
+    const stalePRs = prs.filter(pr => pr.daysSinceCreated >= 3);
+    if (stalePRs.length > 0) {
+      const oldest = stalePRs[0];
+      return `Review PR #${oldest.number} on ${oldest.repo} (${oldest.daysSinceCreated} days old)`;
+    }
+  }
+
+  // Check for in-progress TODO items
+  if (todoSummary && todoSummary.length > 0) {
+    const withInProgress = todoSummary.filter(t => t.inProgress > 0);
+    if (withInProgress.length > 0) {
+      // Find repo with most in-progress items
+      withInProgress.sort((a, b) => b.inProgress - a.inProgress);
+      const top = withInProgress[0];
+      return `Continue work on ${top.repo} (${top.inProgress} task(s) in progress)`;
+    }
+
+    // Otherwise recommend the project with most incomplete tasks
+    const withTasks = todoSummary.filter(t => t.totalIncomplete > 0);
+    if (withTasks.length > 0) {
+      withTasks.sort((a, b) => b.totalIncomplete - a.totalIncomplete);
+      const top = withTasks[0];
+      return `Start with ${top.repo} (${top.totalIncomplete} task(s) remaining)`;
+    }
+  }
+
+  // Check for any PRs that need review
+  if (prs && prs.length > 0) {
+    return `Review PR #${prs[0].number} on ${prs[0].repo}`;
+  }
+
+  return null;
 }
 
 /**
@@ -102,6 +507,7 @@ function _calculateStats(results) {
 
 /**
  * Format report for WhatsApp message with exciting tone
+ * Enhanced with TODO status, CI/CD alerts, and smart recommendations
  * Keeps message under 1500 characters for reliable delivery
  *
  * @param {Object} report - Structured report from generateReport()
@@ -111,69 +517,120 @@ function formatForWhatsApp(report) {
   const lines = [];
   const stats = report.stats;
 
-  // Exciting header
-  lines.push(_getExcitingHeader(report));
+  // New exciting header with date
+  const dateFormatted = _formatReportDate(report.date);
+  lines.push(`*MORNING BRIEF - ${dateFormatted}*`);
   lines.push('');
 
-  // Quick stats summary
-  if (stats.totalTasksCompleted > 0 || stats.totalReposScanned > 0) {
-    lines.push(_getQuickStats(stats));
+  // PROJECT STATUS section (new in Phase 4)
+  if (report.todoSummary && report.todoSummary.length > 0) {
+    lines.push('*PROJECT STATUS:*');
+    report.todoSummary.forEach(project => {
+      if (project.totalIncomplete === 0) {
+        lines.push(`• ${project.repo.toUpperCase()}: All done!`);
+      } else if (project.inProgress > 0) {
+        lines.push(`• ${project.repo.toUpperCase()}: ${project.totalIncomplete} tasks (${project.inProgress} in progress)`);
+      } else {
+        lines.push(`• ${project.repo.toUpperCase()}: ${project.notStarted} tasks left`);
+      }
+    });
     lines.push('');
   }
 
-  // Completed tasks (top 3 max)
-  if (report.tasksCompleted.length > 0) {
-    lines.push('*Completed:*');
-    const displayTasks = report.tasksCompleted.slice(0, 3);
-    displayTasks.forEach(task => {
-      const icon = _getTaskIcon(task.type);
-      let line = `${icon} ${task.description}`;
-      if (task.repo) line += ` (${task.repo})`;
-      if (task.commit) line += ` [${task.commit.slice(0, 7)}]`;
-      lines.push(line);
+  // ATTENTION NEEDED section (new in Phase 4) - CI failures, PRs, deadlines
+  const attentionItems = [];
+
+  // Add CI/CD failures
+  if (report.cicdStatus && report.cicdStatus.length > 0) {
+    report.cicdStatus.slice(0, 2).forEach(failure => {
+      const time = _formatTime(failure.failedAt);
+      attentionItems.push(`Build failed on ${failure.repo} at ${time}`);
     });
-    if (report.tasksCompleted.length > 3) {
-      lines.push(`   _+${report.tasksCompleted.length - 3} more..._`);
+  }
+
+  // Add PRs awaiting review
+  if (report.prsAwaitingReview && report.prsAwaitingReview.length > 0) {
+    report.prsAwaitingReview.slice(0, 2).forEach(pr => {
+      attentionItems.push(`PR #${pr.number} on ${pr.repo} needs review`);
+    });
+  }
+
+  // Add urgent deadlines
+  if (report.urgentDeadlines && report.urgentDeadlines.length > 0) {
+    report.urgentDeadlines.slice(0, 2).forEach(deadline => {
+      if (deadline.daysRemaining <= 3) {
+        attentionItems.push(`${deadline.company} ${deadline.type} due in ${deadline.daysRemaining} day(s)`);
+      }
+    });
+  }
+
+  if (attentionItems.length > 0) {
+    lines.push('*ATTENTION NEEDED:*');
+    attentionItems.forEach(item => {
+      lines.push(`• ${item}`);
+    });
+    lines.push('');
+  }
+
+  // OVERNIGHT section - what was accomplished
+  if (stats.totalTasksCompleted > 0 || stats.prsCreated > 0 || stats.commitsMade > 0) {
+    lines.push('*OVERNIGHT:*');
+    if (stats.totalTasksCompleted > 0) {
+      lines.push(`• Completed: ${stats.totalTasksCompleted} task(s)`);
+    }
+    if (stats.commitsMade > 0) {
+      lines.push(`• Commits: ${stats.commitsMade}`);
+    }
+    if (stats.prsCreated > 0) {
+      lines.push(`• PRs created: ${stats.prsCreated}`);
+    }
+
+    // Show top 2 completed tasks
+    if (report.tasksCompleted.length > 0) {
+      report.tasksCompleted.slice(0, 2).forEach(task => {
+        const icon = _getTaskIcon(task.type);
+        lines.push(`  ${icon} ${task.description}`);
+      });
     }
     lines.push('');
   }
 
   // Queued tasks needing approval (top 2 max)
   if (report.tasksQueued.length > 0) {
-    lines.push('*Needs Your Approval:*');
+    lines.push('*NEEDS APPROVAL:*');
     const displayQueued = report.tasksQueued.slice(0, 2);
     displayQueued.forEach(task => {
-      lines.push(`  ${task.description}`);
-      lines.push(`  _Reason: ${task.reason}_`);
+      lines.push(`• ${task.description}`);
     });
     if (report.tasksQueued.length > 2) {
-      lines.push(`   _+${report.tasksQueued.length - 2} more pending..._`);
+      lines.push(`  _+${report.tasksQueued.length - 2} more pending..._`);
     }
     lines.push('');
   }
 
-  // Key insights (top 2 max)
+  // Key insights (if any)
   if (report.insights.length > 0) {
-    lines.push('*Discovered:*');
+    lines.push('*DISCOVERED:*');
     report.insights.slice(0, 2).forEach(insight => {
-      lines.push(`  ${insight}`);
+      lines.push(`• ${insight}`);
     });
     lines.push('');
   }
 
   // Blockers (if any)
   if (report.blockers.length > 0) {
-    lines.push('*Blockers:*');
+    lines.push('*BLOCKERS:*');
     report.blockers.slice(0, 2).forEach(blocker => {
-      lines.push(`  ${blocker}`);
+      lines.push(`• ${blocker}`);
     });
     lines.push('');
   }
 
-  // Top recommendation
-  if (report.recommendations.length > 0) {
-    lines.push('*Recommended Today:*');
-    lines.push(`  ${report.recommendations[0]}`);
+  // RECOMMENDATION section (enhanced with smart prioritization)
+  const recommendation = report.priorityRecommendation || (report.recommendations && report.recommendations[0]);
+  if (recommendation) {
+    lines.push('*RECOMMENDATION:*');
+    lines.push(recommendation);
     lines.push('');
   }
 
@@ -189,6 +646,36 @@ function formatForWhatsApp(report) {
   }
 
   return message;
+}
+
+/**
+ * Format date for report header
+ * @param {string} dateStr - ISO date string (YYYY-MM-DD)
+ * @returns {string} Formatted date like "Feb 1, 2025"
+ * @private
+ */
+function _formatReportDate(dateStr) {
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('en-GB', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
+
+/**
+ * Format time for display
+ * @param {string} isoString - ISO date string
+ * @returns {string} Formatted time like "2:14 AM"
+ * @private
+ */
+function _formatTime(isoString) {
+  const date = new Date(isoString);
+  return date.toLocaleTimeString('en-GB', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  });
 }
 
 /**
@@ -462,6 +949,7 @@ async function cleanupOldReports(keepDays = 30) {
 
 // Export all functions
 module.exports = {
+  // Core report functions
   generateReport,
   formatForWhatsApp,
   saveReport,
@@ -469,5 +957,19 @@ module.exports = {
   getReportByDate,
   getReportsInRange,
   cleanupOldReports,
-  DATA_DIR
+  DATA_DIR,
+
+  // Phase 4: Proactive Intelligence functions (for testing/external use)
+  getProjectTodoSummary,
+  checkCiCdStatus,
+  getPrsAwaitingReview,
+  getUrgentDeadlines,
+  getPriorityRecommendation,
+  parseTodoContent,
+
+  // Cache control
+  clearTodoCache: () => {
+    todoCache.data = null;
+    todoCache.timestamp = null;
+  }
 };

@@ -3,6 +3,8 @@
     "help",
     "memory",
     "tasks",
+    "remote-exec",
+    "project-context",
     "github",
     "morning-brief",
     "research",
@@ -67,6 +69,13 @@
     "video": {},
     "files": {},
     "ai-settings": {},
-    "autonomous-config": {}
+    "autonomous-config": {},
+    "project-context": {
+      "cacheTTLMinutes": 60
+    },
+    "remote-exec": {
+      "defaultTimeout": 60000,
+      "maxOutputLength": 3000
+    }
   }
 }
