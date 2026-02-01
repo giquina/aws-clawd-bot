@@ -29,6 +29,7 @@ class Scheduler {
         this.registerHandler('evening-report', this.handleEveningReport.bind(this));
         this.registerHandler('health-check', this.handleHealthCheck.bind(this));
         this.registerHandler('proactive-alerts', this.handleProactiveAlerts.bind(this));
+        this.registerHandler('nightly-autonomous', this.handleNightlyAutonomous.bind(this));
         this.registerHandler('custom', this.handleCustomJob.bind(this));
     }
 
@@ -353,6 +354,16 @@ class Scheduler {
     async handleProactiveAlerts(params = {}) {
         const proactiveAlerts = require('./jobs/proactive-alerts');
         return proactiveAlerts.generate(this.db, params);
+    }
+
+    /**
+     * Nightly autonomous handler - runs AI-powered repo maintenance
+     * @param {Object} params - Job parameters
+     * @returns {Promise<string|null>} Report message or null
+     */
+    async handleNightlyAutonomous(params = {}) {
+        const nightlyAutonomous = require('./jobs/nightly-autonomous');
+        return nightlyAutonomous.generate(this.db, params);
     }
 
     /**

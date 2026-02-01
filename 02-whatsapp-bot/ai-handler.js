@@ -1,5 +1,9 @@
-// AI Handler - Interfaces with Claude API
-// Processes user queries and generates intelligent responses
+// AI Handler - Multi-AI Router
+// Processes user queries using the best AI for each task:
+// - Groq (FREE) - Simple queries, greetings
+// - Grok (xAI) - Social media, X/Twitter searches
+// - Claude Opus - Planning, strategy (THE BRAIN)
+// - Claude Sonnet - Coding, implementation (THE CODER)
 
 const Anthropic = require('@anthropic-ai/sdk');
 
@@ -11,14 +15,41 @@ try {
     // Skills not loaded yet, will use fallback
 }
 
+// Import multi-AI provider system
+let providerRegistry = null;
+try {
+    const { registry } = require('./ai-providers');
+    providerRegistry = registry;
+} catch (e) {
+    console.log('[AI Handler] Provider registry not yet available:', e.message);
+}
+
 class AIHandler {
     constructor() {
         this.conversationHistory = [];
-        this.client = null;
+        this.client = null; // Legacy Claude client (fallback)
+        this.providersInitialized = false;
     }
 
     /**
-     * Initialize the Anthropic client
+     * Initialize the AI providers
+     */
+    async initProviders() {
+        if (this.providersInitialized) return;
+
+        try {
+            if (providerRegistry) {
+                await providerRegistry.initialize();
+                this.providersInitialized = true;
+                console.log('[AI Handler] Multi-AI providers initialized');
+            }
+        } catch (e) {
+            console.log('[AI Handler] Provider init failed, using legacy Claude:', e.message);
+        }
+    }
+
+    /**
+     * Initialize the legacy Anthropic client (fallback)
      */
     initClient() {
         if (!this.client && process.env.ANTHROPIC_API_KEY) {
@@ -49,26 +80,25 @@ class AIHandler {
 
 I'm ClawdBot - your coding buddy on WhatsApp 🤖
 
-Try these:
-• "help" - see what I can do
-• "status" - check if I'm working
-• Ask me anything about code!
+Now with MULTI-AI: I use the best AI for each task!
+• Simple questions → FREE (Groq)
+• Social/X search → Grok
+• Planning → Claude Opus (THE BRAIN)
+• Coding → Claude Sonnet (THE CODER)
 
-What's up? 💬`;
+Try "help" to see what I can do! 💬`;
     }
 
     /**
-     * Process a user query with Claude AI
+     * Process a user query with smart AI routing
      * @param {string} query - The user's question or command
+     * @param {Object} context - Optional context (userId, etc.)
      * @returns {Promise<string>} - AI response
      */
-    async processQuery(query) {
+    async processQuery(query, context = {}) {
         try {
-            const client = this.initClient();
-
-            if (!client) {
-                return "AI service not configured. Please set up the ANTHROPIC_API_KEY.";
-            }
+            // Initialize providers on first use
+            await this.initProviders();
 
             // Add query to conversation history
             this.conversationHistory.push({
@@ -81,15 +111,38 @@ What's up? 💬`;
                 this.conversationHistory = this.conversationHistory.slice(-10);
             }
 
-            // Call Claude API
-            const response = await client.messages.create({
-                model: 'claude-sonnet-4-20250514',
-                max_tokens: 1024,
-                system: this.getSystemPrompt(),
-                messages: this.conversationHistory
-            });
+            let aiResponse;
+            let providerUsed = 'claude';
 
-            const aiResponse = response.content[0].text.trim();
+            // Try multi-AI routing first
+            if (providerRegistry && this.providersInitialized) {
+                try {
+                    const result = await providerRegistry.processQuery(query, {
+                        ...context,
+                        history: this.conversationHistory.slice(0, -1), // Exclude current query
+                        systemPrompt: this.getSystemPrompt(),
+                        skillDocs: this.getDynamicSkillDocs()
+                    });
+
+                    aiResponse = result.response;
+                    providerUsed = result.provider;
+
+                    // Log which AI was used
+                    const tierInfo = result.tier ? ` (${result.tier})` : '';
+                    console.log(`[AI Handler] Response from ${providerUsed}${tierInfo}: ${result.tokens || 0} tokens`);
+
+                    // Add correction notice if spelling was fixed
+                    if (result.correctedQuery && result.correctedQuery !== query) {
+                        console.log(`[AI Handler] Spelling corrected: "${query}" → "${result.correctedQuery}"`);
+                    }
+                } catch (routerError) {
+                    console.error('[AI Handler] Router error, falling back to legacy:', routerError.message);
+                    aiResponse = await this.processWithLegacyClaude(query);
+                }
+            } else {
+                // Fallback to legacy Claude if providers not available
+                aiResponse = await this.processWithLegacyClaude(query);
+            }
 
             // Add to history
             this.conversationHistory.push({
@@ -99,9 +152,29 @@ What's up? 💬`;
 
             return aiResponse;
         } catch (error) {
-            console.error('Error calling Claude AI:', error.message);
-            return "I'm having trouble connecting to Claude. Please try again in a moment.";
+            console.error('Error in AI Handler:', error.message);
+            return "I'm having trouble right now. Please try again in a moment.";
         }
+    }
+
+    /**
+     * Legacy Claude processing (fallback)
+     */
+    async processWithLegacyClaude(query) {
+        const client = this.initClient();
+
+        if (!client) {
+            return "AI service not configured. Please set up the ANTHROPIC_API_KEY.";
+        }
+
+        const response = await client.messages.create({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 1024,
+            system: this.getSystemPrompt(),
+            messages: this.conversationHistory
+        });
+
+        return response.content[0].text.trim();
     }
 
     /**
@@ -196,6 +269,13 @@ IMPORTANT: You can READ actual code files! If someone asks about code in a repo,
 - "moltbook feed" - see what other AIs are posting
 - "moltbook status" - check connection
 
+🤖 AI SETTINGS:
+- "ai mode economy" - use FREE Groq for everything
+- "ai mode quality" - use Claude for everything
+- "ai mode balanced" - smart routing (default)
+- "ai stats" - see AI usage and savings
+- "ai status" - check which AI providers are active
+
 🔧 SYSTEM:
 - "help" / "skills" - see all commands
 - "status" - check bot health
@@ -239,6 +319,26 @@ Don't sign off messages - just end naturally with a relevant emoji if appropriat
             }
         }
         return ''; // Return empty if skills not loaded yet
+    }
+
+    /**
+     * Get AI usage stats
+     */
+    getStats() {
+        if (providerRegistry) {
+            return providerRegistry.getStats();
+        }
+        return null;
+    }
+
+    /**
+     * Get provider health status
+     */
+    getHealth() {
+        if (providerRegistry) {
+            return providerRegistry.getHealth();
+        }
+        return { legacy: { available: !!this.client } };
     }
 }
 

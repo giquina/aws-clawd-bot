@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@aws-sdk/client-ec2-instance-connect": "^3.980.0",
+    "dotenv": "^17.2.3"
+  }
+}

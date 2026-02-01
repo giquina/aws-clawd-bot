@@ -25,7 +25,9 @@
     "project-creator",
     "voice",
     "video",
-    "files"
+    "files",
+    "ai-settings",
+    "autonomous-config"
   ],
   "disabled": [],
   "config": {
@@ -63,6 +65,8 @@
     "project-creator": {},
     "voice": {},
     "video": {},
-    "files": {}
+    "files": {},
+    "ai-settings": {},
+    "autonomous-config": {}
   }
 }
