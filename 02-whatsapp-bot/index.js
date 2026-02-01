@@ -186,6 +186,7 @@ app.post('/github-webhook', async (req, res) => {
 });
 
 // Main webhook endpoint for incoming WhatsApp messages
+// Uses async processing to avoid Twilio's 15-second timeout
 app.post('/webhook', async (req, res) => {
     try {
         const incomingMsg = req.body.Body?.trim() || '';
@@ -201,6 +202,31 @@ app.post('/webhook', async (req, res) => {
             return res.status(403).send('Unauthorized');
         }
 
+        // IMPORTANT: Respond to Twilio immediately to avoid timeout
+        // Then process message asynchronously
+        res.status(200).send('OK');
+
+        // Extract media info from Twilio request (for receipt/image handling)
+        const numMedia = parseInt(req.body.NumMedia || '0', 10);
+        const mediaUrl = numMedia > 0 ? req.body.MediaUrl0 : null;
+        const mediaContentType = numMedia > 0 ? req.body.MediaContentType0 : null;
+
+        // Process message in background (non-blocking)
+        processMessageAsync(incomingMsg, fromNumber, userId, { numMedia, mediaUrl, mediaContentType })
+            .catch(err => console.error('[Async] Error processing message:', err.message));
+
+        return; // Already responded
+    } catch (error) {
+        console.error('Error in webhook:', error);
+        if (!res.headersSent) {
+            res.status(500).send('Internal Server Error');
+        }
+    }
+});
+
+// Async message processor - runs after webhook responds
+async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext) {
+    try {
         // Save incoming message to memory
         if (memory) {
             memory.saveMessage(userId, 'user', incomingMsg);
@@ -222,17 +248,14 @@ app.post('/webhook', async (req, res) => {
             });
 
             console.log(`[${new Date().toISOString()}] Sent greeting`);
-            return res.status(200).send('OK');
+            return;
         }
 
         // Process the message
         let responseText = '';
         let handled = false;
 
-        // Extract media info from Twilio request (for receipt/image handling)
-        const numMedia = parseInt(req.body.NumMedia || '0', 10);
-        const mediaUrl = numMedia > 0 ? req.body.MediaUrl0 : null;
-        const mediaContentType = numMedia > 0 ? req.body.MediaContentType0 : null;
+        const { numMedia, mediaUrl, mediaContentType } = mediaContext;
 
         // Preprocess message through hooks (natural language -> command)
         const processedMsg = await hooks.preprocess(incomingMsg, { userId, fromNumber });
@@ -291,7 +314,7 @@ app.post('/webhook', async (req, res) => {
             extractAndSaveFacts(userId, incomingMsg);
         }
 
-        // Send response via Twilio
+        // Send response via Twilio (async - not in webhook response)
         await twilioClient.messages.create({
             body: responseText,
             from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
@@ -300,12 +323,20 @@ app.post('/webhook', async (req, res) => {
 
         console.log(`[${new Date().toISOString()}] Sent: "${responseText.substring(0, 50)}..."`);
 
-        res.status(200).send('OK');
     } catch (error) {
-        console.error('Error processing webhook:', error);
-        res.status(500).send('Internal Server Error');
+        console.error('Error processing message async:', error);
+        // Try to send error message to user
+        try {
+            await twilioClient.messages.create({
+                body: `Sorry, I had trouble processing that. Try again or type "help". Error: ${error.message}`,
+                from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
+                to: fromNumber
+            });
+        } catch (sendError) {
+            console.error('Failed to send error message:', sendError.message);
+        }
     }
-});
+}
 
 // Extract facts from user messages (simple pattern matching)
 function extractAndSaveFacts(userId, message) {

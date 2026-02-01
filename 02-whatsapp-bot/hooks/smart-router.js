@@ -125,9 +125,17 @@ class SmartRouter {
       // === GENERAL / HELP ===
       { match: /(what|how).*(can you|do you)\s*do/i, command: 'help' },
       { match: /what\s*commands/i, command: 'help' },
+      { match: /what.*(capabilities|features|skills)/i, command: 'help' },
+      { match: /show.*help/i, command: 'help' },
       { match: /^(hi|hello|hey|yo|sup)$/i, command: 'status' },
       { match: /good\s*(morning|afternoon|evening)/i, command: 'status' },
       { match: /how.*you/i, command: 'status' },
+
+      // === GITHUB/CLAUDE QUESTIONS (common) ===
+      { match: /what.*(github|claude|ai).*(do|can)/i, command: 'help' },
+      { match: /(tell|show|explain).*(github|claude)/i, command: 'help' },
+      { match: /github.*(features|commands|help)/i, command: 'help' },
+
     ];
 
     for (const { match, command } of patterns) {
