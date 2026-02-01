@@ -37,6 +37,8 @@ let memory = null;
 let skillRegistry = null;
 let scheduler = null;
 let projectIntelligence = null;
+let actionExecutor = null;
+let confirmationManager = null;
 
 // Try to load Project Intelligence (the brain)
 try {
@@ -45,6 +47,22 @@ try {
     console.log('✅ Project Intelligence loaded');
 } catch (err) {
     console.log('⚠️  Project Intelligence not available:', err.message);
+}
+
+// Try to load Action Executor (auto-execution layer)
+try {
+    actionExecutor = require('./lib/action-executor');
+    console.log('✅ Action Executor loaded');
+} catch (err) {
+    console.log('⚠️  Action Executor not available:', err.message);
+}
+
+// Try to load Confirmation Manager
+try {
+    confirmationManager = require('./lib/confirmation-manager');
+    console.log('✅ Confirmation Manager loaded');
+} catch (err) {
+    console.log('⚠️  Confirmation Manager not available:', err.message);
 }
 
 // Try to load memory system
@@ -242,6 +260,41 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
             memory.saveMessage(userId, 'user', incomingMsg);
         }
 
+        // CHECK FOR PENDING CONFIRMATIONS FIRST
+        if (confirmationManager && confirmationManager.hasPending(userId)) {
+            const confirmResult = confirmationManager.isConfirmation(incomingMsg);
+
+            if (confirmResult === 'yes') {
+                // User confirmed - execute the pending action
+                const pending = confirmationManager.confirm(userId);
+                if (pending && actionExecutor) {
+                    console.log(`[AutoExec] Executing confirmed action: ${pending.action}`);
+                    const execResult = await actionExecutor.execute(pending.action, pending.params, pending.context);
+
+                    const responseText = execResult.success
+                        ? `✅ *Done!*\n\n${execResult.message}`
+                        : `❌ *Failed:* ${execResult.error || execResult.message}`;
+
+                    await twilioClient.messages.create({
+                        body: responseText,
+                        from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
+                        to: fromNumber
+                    });
+                    return;
+                }
+            } else if (confirmResult === 'no') {
+                // User cancelled
+                confirmationManager.cancel(userId);
+                await twilioClient.messages.create({
+                    body: '❌ *Cancelled.* Let me know if you need anything else.',
+                    from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
+                    to: fromNumber
+                });
+                return;
+            }
+            // If not a clear yes/no, continue processing normally
+        }
+
         // Check for new conversation (send greeting)
         if (aiHandler.isNewConversation() && incomingMsg.toLowerCase() === 'hi') {
             const greeting = aiHandler.getGreeting();
@@ -266,6 +319,42 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
         let handled = false;
 
         const { numMedia, mediaUrl, mediaContentType } = mediaContext;
+
+        // AUTO-PROCESS RECEIPTS: If image attached and looks like receipt
+        if (numMedia > 0 && mediaContentType?.startsWith('image/') && actionExecutor) {
+            const msgLower = (incomingMsg || '').toLowerCase();
+            const isReceiptLikely = !incomingMsg || msgLower.includes('receipt') || msgLower.includes('expense') ||
+                                    msgLower.includes('paid') || msgLower.includes('bought') || msgLower.includes('fuel');
+
+            if (isReceiptLikely) {
+                try {
+                    console.log('[AutoExec] Auto-processing receipt image');
+                    const receiptProcessor = require('./lib/actions/receipt-processor');
+
+                    // Detect company from message
+                    let company = null;
+                    if (msgLower.includes('gqcars') || msgLower.includes('gq cars') || msgLower.includes('car')) company = 'GQCARS';
+                    else if (msgLower.includes('gmh') || msgLower.includes('holding')) company = 'GMH';
+                    else if (msgLower.includes('gacc') || msgLower.includes('accountan')) company = 'GACC';
+                    else if (msgLower.includes('gcap') || msgLower.includes('capital')) company = 'GCAP';
+                    else if (msgLower.includes('gspv') || msgLower.includes('spv')) company = 'GSPV';
+
+                    const result = await receiptProcessor.processReceipt(mediaUrl, {
+                        userId,
+                        company,
+                        description: incomingMsg
+                    });
+
+                    if (result.success) {
+                        responseText = result.summary;
+                        handled = true;
+                    }
+                } catch (err) {
+                    console.error('[AutoExec] Receipt processing failed:', err.message);
+                    // Fall through to normal processing
+                }
+            }
+        }
 
         // Preprocess message through hooks (natural language -> command)
         // Pass media context so hooks can skip routing for voice/media messages
@@ -293,6 +382,45 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
                 if (result && result.handled) {
                     responseText = result.message;
                     handled = true;
+
+                    // AUTO-EXECUTION: Check if skill returned an action to execute
+                    if (result.data?.intelligence && actionExecutor) {
+                        const intel = result.data.intelligence;
+
+                        if (intel.action && intel.confidence > 0.6) {
+                            // Check if this action needs confirmation
+                            if (confirmationManager && confirmationManager.requiresConfirmation(intel.action)) {
+                                // Store pending and ask for confirmation
+                                confirmationManager.setPending(userId, intel.action, {
+                                    project: intel.project,
+                                    projectDetails: intel.projectDetails,
+                                    description: result.data?.transcription || incomingMsg,
+                                    company: intel.company
+                                }, { userId, fromNumber, mediaUrl });
+
+                                const confirmMsg = confirmationManager.formatConfirmationRequest(intel.action, {
+                                    project: intel.project,
+                                    description: result.data?.transcription || incomingMsg
+                                });
+
+                                responseText += '\n\n' + confirmMsg;
+                            } else {
+                                // Execute immediately (low-risk action)
+                                console.log(`[AutoExec] Auto-executing: ${intel.action}`);
+                                const execResult = await actionExecutor.execute(intel.action, {
+                                    project: intel.project,
+                                    projectDetails: intel.projectDetails,
+                                    description: result.data?.transcription || incomingMsg,
+                                    company: intel.company,
+                                    mediaUrl: mediaUrl
+                                }, { userId, fromNumber });
+
+                                if (execResult.success) {
+                                    responseText += '\n\n✅ ' + execResult.message;
+                                }
+                            }
+                        }
+                    }
                 }
             } catch (skillError) {
                 console.error('Skill error:', skillError.message);
