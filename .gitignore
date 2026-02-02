@@ -83,3 +83,7 @@ data/
 
 # Windows artifacts
 nul
+
+# Next.js build output
+.next/
+out/
