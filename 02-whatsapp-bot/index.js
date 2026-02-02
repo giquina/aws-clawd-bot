@@ -6,7 +6,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const twilio = require('twilio');
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '..', 'config', '.env.local') });
 
 // Initialize hooks system early (includes error alerter and smart router)
 const hooks = require('./hooks');

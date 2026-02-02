@@ -24,6 +24,25 @@ This document captures ideas for improving ClawdBot beyond the core implementati
 
 ---
 
+## ✅ COMPLETED in v2.3 (Claude Code Agent)
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Voice Messages | ✅ Done | Groq Whisper transcription (FREE) |
+| Multi-AI Routing | ✅ Done | Groq (free) / Claude (tiered) / Grok (social) |
+| Project Intelligence | ✅ Done | Routes voice/text to correct project from 16 repos |
+| Intent Classification | ✅ Done | Understands "file my taxes" → accountancy |
+| Auto-Execution Layer | ✅ Done | 7 handlers (deploy, create-page, receipts, etc.) |
+| Confirmation System | ✅ Done | Asks before risky actions |
+| Receipt Processor | ✅ Done | Auto-extracts from photos via Claude Vision |
+| Code Generator | ✅ Done | Creates branches + PRs automatically |
+| GitHub Webhooks | ✅ Done | CI fail / PR / Issue alerts to WhatsApp |
+| Overnight Queue | ✅ Done | `autonomous/nightly-autonomous.js` |
+| Model Selection | ✅ Done | `ai mode economy/balanced/quality` |
+| Quick Actions + Confirm | ✅ Done | `confirmation-manager.js` |
+
+---
+
 ## Quick Wins (< 1 hour each)
 
 ### 1. ~~Better Welcome Message~~ ✅ DONE
@@ -152,11 +171,13 @@ Bot: Got it! I'll remember that "deploy" = staging deployment.
 - Thread replies
 - App home with dashboard
 
-### 19. GitHub Webhooks
+### 19. GitHub Webhooks ✅ IMPLEMENTED (v2.3)
 Receive events instead of polling:
-- New issues → Auto-triage
-- New PRs → Auto-review
-- Failed CI → Alert user
+- New issues → WhatsApp notification ✅
+- New PRs → WhatsApp notification ✅
+- Failed CI → WhatsApp alert ✅
+
+**Note:** Webhook handler ready at `/github-webhook`. Configure each GitHub repo to send webhooks to `http://16.171.150.151:3000/github-webhook`
 
 ### 20. Notion Integration
 - Sync tasks with Notion database
@@ -361,7 +382,7 @@ Occasionally share helpful tips:
 | Effort | High Impact | Low Impact |
 |--------|-------------|------------|
 | **Low** | ~~Help command~~ ✅, Better errors, Emoji signature | Streak tracker, Tips |
-| **Medium** | Telegram, GitHub webhooks (real-time), Overnight queue | Achievements, Personality modes |
+| **Medium** | Telegram, ~~GitHub webhooks~~ ✅, ~~Overnight queue~~ ✅ | Achievements, Personality modes |
 | **High** | MCP integration, Visual dashboard, Agent delegation | Voice support, Personal CRM |
 
 ---
@@ -377,11 +398,13 @@ User: tonight, fix all ESLint errors in giquina-accountancy
 Bot: Added to queue. I'll create PRs by morning.
 ```
 
-### 2. **Real-time GitHub Webhooks** (High Value)
-Get instant notifications when:
-- New PR opened → Auto-review suggestion
-- CI fails → Alert with error summary
-- Issue created → Auto-triage
+### 2. ~~**Real-time GitHub Webhooks**~~ ✅ DONE (v2.3)
+Webhook handler implemented at `/github-webhook`:
+- New PR opened → WhatsApp notification ✅
+- CI fails → WhatsApp alert ✅
+- Issue created → WhatsApp notification ✅
+
+**To enable:** Configure each GitHub repo's webhook settings to POST to `http://16.171.150.151:3000/github-webhook`
 
 ### 3. **Multi-Repo Operations** (Medium Value)
 ```
@@ -419,5 +442,5 @@ Connect to Model Context Protocol for richer tools:
 
 ---
 
-*Last Updated: 2026-01-31 (v2.0 Release)*
+*Last Updated: 2026-02-01 (v2.3 Claude Code Agent Release)*
 *Contributions welcome! Add your ideas below.*

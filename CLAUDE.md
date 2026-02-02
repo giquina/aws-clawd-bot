@@ -15,27 +15,31 @@ ClawdBot v2.3 is a WhatsApp-controlled **Claude Code Agent** running 24/7 on AWS
 cd 02-whatsapp-bot && npm install
 npm run dev                    # Development with nodemon auto-reload
 npm start                      # Production mode
-npm run test                   # Run bot tests
 curl localhost:3000/health     # Health check
 
 # Security
 npm run audit                  # Check for vulnerabilities
 npm run audit:fix              # Auto-fix vulnerabilities
-npm run security-check         # High severity check for CI
-node scripts/setup-hooks.js    # Install pre-commit security hook
 
-# Deploy to AWS EC2
+# Deploy to AWS EC2 (quick)
+scp -i ~/.ssh/clawd-bot-key.pem 02-whatsapp-bot/index.js ubuntu@16.171.150.151:/opt/clawd-bot/02-whatsapp-bot/
+ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 "pm2 restart clawd-bot"
+
+# Deploy to AWS EC2 (full)
 tar -czvf /tmp/clawd-bot.tar.gz --exclude='node_modules' --exclude='.git' .
 scp -i ~/.ssh/clawd-bot-key.pem /tmp/clawd-bot.tar.gz ubuntu@16.171.150.151:/tmp/
 ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 \
   "cd /opt/clawd-bot && sudo tar -xzf /tmp/clawd-bot.tar.gz && pm2 restart clawd-bot"
 
-# SSH to EC2 (alternative if permission denied)
+# SSH to EC2 (if permission denied, push key first)
 aws ec2-instance-connect send-ssh-public-key \
   --instance-id i-009f070a76a0d91c1 \
   --instance-os-user ubuntu \
   --ssh-public-key file://~/.ssh/clawd-bot-key.pem.pub \
   --region eu-north-1
+
+# View EC2 logs
+ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 "pm2 logs clawd-bot --lines 50"
 ```
 
 ## API Endpoints
@@ -140,6 +144,14 @@ ClawdBot uses smart AI routing to minimize costs:
 | `02-whatsapp-bot/autonomous/task-executor.js` | Executes queued tasks |
 | `02-whatsapp-bot/autonomous/project-scanner.js` | Scans projects for issues |
 | `02-whatsapp-bot/scheduler/jobs/nightly-autonomous.js` | Triggers autonomous runs |
+| `02-whatsapp-bot/github-webhook.js` | GitHub event formatter |
+| `02-whatsapp-bot/lib/project-intelligence.js` | The brain - project routing |
+| `02-whatsapp-bot/lib/intent-classifier.js` | AI intent understanding |
+| `02-whatsapp-bot/lib/action-executor.js` | Auto-execution with 7 handlers |
+| `02-whatsapp-bot/lib/confirmation-manager.js` | Safe action confirmations |
+| `02-whatsapp-bot/lib/actions/code-generator.js` | Creates branches + PRs |
+| `02-whatsapp-bot/lib/actions/receipt-processor.js` | Claude Vision receipts |
+| `config/project-registry.json` | 16 projects with capabilities |
 | `config/.env.local` | Environment variables (never modify via code) |
 
 ## Environment Variables
@@ -221,11 +233,52 @@ remote commands             → List allowed commands
 | `active-project.js` | Per-user project context (2hr expiry) |
 | `command-whitelist.js` | Security controls for remote exec |
 
+### Auto-Execution Layer (`lib/`)
+
+The bot can automatically execute actions from voice/text commands:
+
+| Handler | Trigger | What It Does |
+|---------|---------|--------------|
+| `create-page` | "create a homepage for X" | Generates code + PR |
+| `create-feature` | "add login to X" | Generates feature code + PR |
+| `process-receipt` | Send image | Extracts data via Claude Vision |
+| `deploy` | "deploy X" | Runs deploy script (with confirmation) |
+| `check-status` | "status of X" | Shows project TODO.md |
+| `create-task` | "add task to X" | Creates GitHub issue |
+| `code-task` | "fix bug in X" | AI analyzes + creates fix PR |
+
+**Key Files:**
+| File | Purpose |
+|------|---------|
+| `lib/project-intelligence.js` | The brain - routes to correct project |
+| `lib/intent-classifier.js` | AI understands "file my taxes" |
+| `lib/action-executor.js` | Executes actions with 7 handlers |
+| `lib/confirmation-manager.js` | Asks before risky actions |
+| `lib/actions/code-generator.js` | Creates branches + PRs |
+| `lib/actions/receipt-processor.js` | Claude Vision receipt extraction |
+| `config/project-registry.json` | Maps 16 repos with capabilities |
+
+### GitHub Webhooks (Real-time Alerts)
+
+Endpoint: `POST /github-webhook`
+
+| Event | WhatsApp Alert |
+|-------|----------------|
+| `workflow_run` (failed) | "⚠️ [repo] CI failed on main" |
+| `pull_request` (opened) | "[repo] PR opened #42: Title" |
+| `issues` (opened) | "[repo] Issue opened #10: Bug report" |
+| `push` | "[repo] Push: 3 commits to main" |
+| `release` | "[repo] Release published: v1.2.3" |
+
+**Setup:** Configure each GitHub repo's webhook to POST to `http://16.171.150.151:3000/github-webhook`
+
 ### Natural Language (voice-friendly)
 The smart router handles casual speech:
 - "what's left on judo" → `project status judo`
 - "deploy clawd to production" → `deploy aws-clawd-bot`
 - "what should I work on" → `project status` (uses active project)
+- "file my taxes for GQCARS" → routes to accountancy project
+- "create a contact page for LusoTown" → generates code + PR
 
 ## Skill Categories
 
