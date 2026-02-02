@@ -2,21 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --foreground-rgb: 0, 0, 0;
-  --background-rgb: 249, 250, 251;
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
+    --foreground-rgb: 0, 0, 0;
+    --background-rgb: 249, 250, 251;
+  }
+
+  .dark {
     --foreground-rgb: 255, 255, 255;
     --background-rgb: 17, 24, 39;
   }
-}
 
-body {
-  color: rgb(var(--foreground-rgb));
-  background: rgb(var(--background-rgb));
+  body {
+    color: rgb(var(--foreground-rgb));
+    background: rgb(var(--background-rgb));
+  }
+
+  /* Smooth transitions for theme changes */
+  html {
+    transition: background-color 0.2s ease-in-out;
+  }
+
+  /* Dark mode scrollbar styling */
+  .dark ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .dark ::-webkit-scrollbar-track {
+    background: #374151;
+    border-radius: 4px;
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    background: #4b5563;
+    border-radius: 4px;
+  }
+
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: #6b7280;
+  }
 }
 
 @layer utilities {

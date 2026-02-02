@@ -29,3 +29,35 @@ export function truncate(str: string, length: number): string {
   if (str.length <= length) return str;
   return str.slice(0, length) + '...';
 }
+
+export function formatRelativeTime(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSeconds = Math.floor(diffMs / 1000);
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffSeconds < 5) {
+    return 'just now';
+  }
+  if (diffSeconds < 60) {
+    return `${diffSeconds} seconds ago`;
+  }
+  if (diffMinutes === 1) {
+    return '1 minute ago';
+  }
+  if (diffMinutes < 60) {
+    return `${diffMinutes} minutes ago`;
+  }
+  if (diffHours === 1) {
+    return '1 hour ago';
+  }
+  if (diffHours < 24) {
+    return `${diffHours} hours ago`;
+  }
+  if (diffDays === 1) {
+    return '1 day ago';
+  }
+  return `${diffDays} days ago`;
+}

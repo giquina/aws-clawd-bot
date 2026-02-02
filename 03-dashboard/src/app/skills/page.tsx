@@ -121,23 +121,23 @@ export default function SkillsPage() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center gap-3">
           <Sparkles className="h-8 w-8 text-primary-600" />
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Skills</h1>
-            <p className="text-gray-500">Loading available commands...</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Skills</h1>
+            <p className="text-gray-500 dark:text-gray-400">Loading available commands...</p>
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map(i => (
             <Card key={i} className="animate-pulse">
               <CardHeader>
-                <div className="h-6 bg-gray-200 rounded w-3/4 mb-2"></div>
-                <div className="h-4 bg-gray-200 rounded w-full"></div>
+                <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-2"></div>
+                <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-full"></div>
               </CardHeader>
               <CardContent>
-                <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+                <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2"></div>
               </CardContent>
             </Card>
           ))}
@@ -148,18 +148,18 @@ export default function SkillsPage() {
 
   if (error) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center gap-3">
           <Sparkles className="h-8 w-8 text-primary-600" />
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Skills</h1>
-            <p className="text-gray-500">All available bot commands</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Skills</h1>
+            <p className="text-gray-500 dark:text-gray-400">All available bot commands</p>
           </div>
         </div>
-        <Card className="border-red-200 bg-red-50">
+        <Card className="border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
           <CardHeader>
-            <CardTitle className="text-red-800">Error Loading Skills</CardTitle>
-            <CardDescription className="text-red-600">{error}</CardDescription>
+            <CardTitle className="text-red-800 dark:text-red-400">Error Loading Skills</CardTitle>
+            <CardDescription className="text-red-600 dark:text-red-400">{error}</CardDescription>
           </CardHeader>
           <CardContent>
             <Button onClick={loadSkills} variant="outline">
@@ -175,19 +175,19 @@ export default function SkillsPage() {
   const groupedSkills = categorizeSkills(filteredSkills);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex items-center gap-3">
         <Sparkles className="h-8 w-8 text-primary-600" />
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Skills</h1>
-          <p className="text-gray-500">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Skills</h1>
+          <p className="text-gray-500 dark:text-gray-400">
             {skills.length} available commands across {Object.keys(groupedSkills).length} categories
           </p>
         </div>
       </div>
 
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 dark:text-gray-500" />
         <Input
           type="text"
           placeholder="Search skills, commands, or descriptions..."
@@ -210,7 +210,7 @@ export default function SkillsPage() {
         <div className="space-y-8">
           {Object.entries(groupedSkills).map(([category, categorySkills]) => (
             <div key={category}>
-              <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
                 {category}
                 <Badge variant="outline">{categorySkills.length}</Badge>
               </h2>
@@ -238,9 +238,9 @@ export default function SkillsPage() {
                           {displayedCommands.map((command, idx) => (
                             <div
                               key={idx}
-                              className="flex items-center gap-2 bg-gray-50 rounded px-3 py-2"
+                              className="flex items-center gap-2 bg-gray-50 dark:bg-gray-700/50 rounded px-3 py-2"
                             >
-                              <code className="text-xs text-gray-700 flex-1 font-mono">
+                              <code className="text-xs text-gray-700 dark:text-gray-300 flex-1 font-mono">
                                 {command}
                               </code>
                               <Button
@@ -252,8 +252,8 @@ export default function SkillsPage() {
                                 <Copy
                                   className={`h-3 w-3 ${
                                     copiedCommand === command
-                                      ? 'text-green-600'
-                                      : 'text-gray-500'
+                                      ? 'text-green-600 dark:text-green-400'
+                                      : 'text-gray-500 dark:text-gray-400'
                                   }`}
                                 />
                               </Button>

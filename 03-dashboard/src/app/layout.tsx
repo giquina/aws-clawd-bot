@@ -2,12 +2,14 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { Nav } from '@/components/nav';
+import { PageWrapper } from '@/components/page-wrapper';
+import { ToastProvider } from '@/components/ui/toast';
 
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'ClawdBot Dashboard',
-  description: 'Web dashboard for ClawdBot - Your AI WhatsApp Assistant',
+  description: 'Web dashboard for ClawdBot - Your AI Assistant Control Center',
 };
 
 export default function RootLayout({
@@ -16,14 +18,35 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Script to prevent flash of wrong theme */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var theme = localStorage.getItem('clawdbot-theme') || 'system';
+                  var isDark = theme === 'dark' ||
+                    (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                  if (isDark) {
+                    document.documentElement.classList.add('dark');
+                  }
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
       <body className={inter.className}>
-        <div className="min-h-screen bg-gray-50">
-          <Nav />
-          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            {children}
-          </main>
-        </div>
+        <ToastProvider>
+          <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
+            <Nav />
+            <PageWrapper>
+              {children}
+            </PageWrapper>
+          </div>
+        </ToastProvider>
       </body>
     </html>
   );

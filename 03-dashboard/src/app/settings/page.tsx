@@ -6,6 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useToast } from '@/components/ui/toast';
+import { ConfirmModal } from '@/components/ui/confirm-modal';
 import {
   Settings,
   Key,
@@ -29,6 +31,8 @@ export default function SettingsPage() {
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const toast = useToast();
 
   useEffect(() => {
     const savedKey = getApiKey();
@@ -54,6 +58,7 @@ export default function SettingsPage() {
     setApiKey(apiKeyInput);
     setSaved(true);
     setTestResult(null);
+    toast.success('API key saved successfully');
     setTimeout(() => setSaved(false), 2000);
   }
 
@@ -63,30 +68,31 @@ export default function SettingsPage() {
     try {
       await api.getStatus();
       setTestResult('success');
+      toast.success('Connection successful!');
       fetchStatus();
     } catch (err) {
       setTestResult('error');
+      toast.error('Connection failed. Check your API key.');
     } finally {
       setTesting(false);
     }
   }
 
   function handleClearApiKey() {
-    if (confirm('Are you sure you want to clear your API key?')) {
-      setApiKeyInput('');
-      setApiKey('');
-      setTestResult(null);
-    }
+    setApiKeyInput('');
+    setApiKey('');
+    setTestResult(null);
+    toast.info('API key cleared');
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div>
-        <h1 className="text-3xl font-bold flex items-center gap-3">
+        <h1 className="text-3xl font-bold flex items-center gap-3 text-gray-900 dark:text-gray-100">
           <Settings className="h-8 w-8 text-primary-600" />
           Settings
         </h1>
-        <p className="text-gray-600 mt-1">
+        <p className="text-gray-600 dark:text-gray-400 mt-1">
           Configure your dashboard connection
         </p>
       </div>
@@ -95,7 +101,7 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Key className="h-5 w-5 text-yellow-600" />
+            <Key className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
             <CardTitle>API Key</CardTitle>
           </div>
           <CardDescription>
@@ -115,7 +121,7 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={() => setShowApiKey(!showApiKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
               >
                 {showApiKey ? (
                   <EyeOff className="h-4 w-4" />
@@ -144,7 +150,7 @@ export default function SettingsPage() {
               Test Connection
             </Button>
             <Button
-              onClick={handleClearApiKey}
+              onClick={() => setShowClearConfirm(true)}
               variant="ghost"
               disabled={!apiKeyInput}
             >
@@ -152,20 +158,20 @@ export default function SettingsPage() {
             </Button>
 
             {testResult === 'success' && (
-              <div className="flex items-center gap-1 text-green-600 text-sm">
+              <div className="flex items-center gap-1 text-green-600 dark:text-green-400 text-sm">
                 <CheckCircle className="h-4 w-4" />
                 Connected successfully
               </div>
             )}
             {testResult === 'error' && (
-              <div className="flex items-center gap-1 text-red-600 text-sm">
+              <div className="flex items-center gap-1 text-red-600 dark:text-red-400 text-sm">
                 <XCircle className="h-4 w-4" />
                 Connection failed
               </div>
             )}
           </div>
 
-          <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-600">
+          <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-sm text-gray-600 dark:text-gray-400">
             <p>
               Your API key is stored locally in your browser and is never sent to any third-party servers.
               It is only used to authenticate requests to your ClawdBot server.
@@ -178,7 +184,7 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Server className="h-5 w-5 text-blue-600" />
+            <Server className="h-5 w-5 text-blue-600 dark:text-blue-400" />
             <CardTitle>Server Status</CardTitle>
           </div>
           <CardDescription>
@@ -187,7 +193,7 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex items-center gap-2 text-gray-500">
+            <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading server status...
             </div>
@@ -195,27 +201,27 @@ export default function SettingsPage() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <p className="text-sm text-gray-500">Status</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Status</p>
                   <Badge variant={status.status === 'online' ? 'success' : 'error'}>
                     {status.status}
                   </Badge>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Version</p>
-                  <p className="font-medium">{status.version}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Version</p>
+                  <p className="font-medium text-gray-900 dark:text-gray-100">{status.version}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Skills</p>
-                  <p className="font-medium">{status.skillCount} loaded</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Skills</p>
+                  <p className="font-medium text-gray-900 dark:text-gray-100">{status.skillCount} loaded</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Server</p>
-                  <p className="font-medium text-sm">16.171.150.151:3000</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Server</p>
+                  <p className="font-medium text-sm text-gray-900 dark:text-gray-100">16.171.150.151:3000</p>
                 </div>
               </div>
 
-              <div className="border-t pt-4">
-                <p className="text-sm text-gray-500 mb-2">Features</p>
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Features</p>
                 <div className="flex flex-wrap gap-2">
                   <FeatureBadge label="Memory" enabled={status.features.memory} />
                   <FeatureBadge label="Skills" enabled={status.features.skills} />
@@ -226,7 +232,7 @@ export default function SettingsPage() {
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-yellow-600">
+            <div className="flex items-center gap-2 text-yellow-600 dark:text-yellow-400">
               <AlertCircle className="h-4 w-4" />
               Unable to fetch server status. Check your API key.
             </div>
@@ -248,14 +254,14 @@ export default function SettingsPage() {
               href="https://github.com/giquina/aws-clawd-bot"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-3 p-4 rounded-lg border hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
             >
-              <div className="p-2 bg-gray-100 rounded-lg">
-                <ExternalLink className="h-5 w-5 text-gray-600" />
+              <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                <ExternalLink className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               </div>
               <div>
-                <p className="font-medium">GitHub Repository</p>
-                <p className="text-sm text-gray-500">Source code and issues</p>
+                <p className="font-medium text-gray-900 dark:text-gray-100">GitHub Repository</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Source code and issues</p>
               </div>
             </a>
 
@@ -263,14 +269,14 @@ export default function SettingsPage() {
               href="https://github.com/giquina/aws-clawd-bot/blob/main/CLAUDE.md"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-3 p-4 rounded-lg border hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
             >
-              <div className="p-2 bg-gray-100 rounded-lg">
-                <ExternalLink className="h-5 w-5 text-gray-600" />
+              <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                <ExternalLink className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               </div>
               <div>
-                <p className="font-medium">CLAUDE.md</p>
-                <p className="text-sm text-gray-500">Full documentation</p>
+                <p className="font-medium text-gray-900 dark:text-gray-100">CLAUDE.md</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Full documentation</p>
               </div>
             </a>
 
@@ -278,14 +284,14 @@ export default function SettingsPage() {
               href="https://github.com/giquina/aws-clawd-bot/blob/main/02-whatsapp-bot/mcp-server/README.md"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-3 p-4 rounded-lg border hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
             >
-              <div className="p-2 bg-gray-100 rounded-lg">
-                <ExternalLink className="h-5 w-5 text-gray-600" />
+              <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                <ExternalLink className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               </div>
               <div>
-                <p className="font-medium">MCP Server Setup</p>
-                <p className="text-sm text-gray-500">Claude Desktop integration</p>
+                <p className="font-medium text-gray-900 dark:text-gray-100">MCP Server Setup</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Claude Desktop integration</p>
               </div>
             </a>
 
@@ -293,14 +299,14 @@ export default function SettingsPage() {
               href="https://github.com/giquina/aws-clawd-bot/blob/main/TODO.md"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-3 p-4 rounded-lg border hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
             >
-              <div className="p-2 bg-gray-100 rounded-lg">
-                <ExternalLink className="h-5 w-5 text-gray-600" />
+              <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                <ExternalLink className="h-5 w-5 text-gray-600 dark:text-gray-400" />
               </div>
               <div>
-                <p className="font-medium">TODO.md</p>
-                <p className="text-sm text-gray-500">Roadmap and tasks</p>
+                <p className="font-medium text-gray-900 dark:text-gray-100">TODO.md</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Roadmap and tasks</p>
               </div>
             </a>
           </div>
@@ -312,32 +318,44 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle>About ClawdBot Dashboard</CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-gray-600 space-y-2">
+        <CardContent className="text-sm text-gray-600 dark:text-gray-400 space-y-2">
           <p>
-            <strong>ClawdBot v2.3</strong> is a WhatsApp-controlled Claude Code Agent running 24/7 on AWS EC2.
+            <strong className="text-gray-900 dark:text-gray-100">ClawdBot v2.3</strong> is a WhatsApp-controlled Claude Code Agent running 24/7 on AWS EC2.
           </p>
           <p>
             This dashboard provides a web interface to monitor bot status, view projects, browse skills,
             and manage your ClawdBot instance.
           </p>
-          <p className="pt-2 text-gray-500">
+          <p className="pt-2 text-gray-500 dark:text-gray-500">
             Built with Next.js 14, Tailwind CSS, and deployed on Vercel.
           </p>
         </CardContent>
       </Card>
+
+      {/* Clear API Key Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showClearConfirm}
+        onClose={() => setShowClearConfirm(false)}
+        onConfirm={handleClearApiKey}
+        title="Clear API Key"
+        message="Are you sure you want to clear your API key? You will need to enter it again to connect to the server."
+        confirmText="Clear"
+        cancelText="Cancel"
+        variant="danger"
+      />
     </div>
   );
 }
 
 function FeatureBadge({ label, enabled }: { label: string; enabled: boolean }) {
   return (
-    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 text-sm">
+    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-sm">
       {enabled ? (
-        <CheckCircle className="h-3.5 w-3.5 text-green-600" />
+        <CheckCircle className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
       ) : (
-        <XCircle className="h-3.5 w-3.5 text-gray-400" />
+        <XCircle className="h-3.5 w-3.5 text-gray-400 dark:text-gray-500" />
       )}
-      <span className={enabled ? 'text-gray-700' : 'text-gray-500'}>{label}</span>
+      <span className={enabled ? 'text-gray-700 dark:text-gray-300' : 'text-gray-500 dark:text-gray-400'}>{label}</span>
     </div>
   );
 }

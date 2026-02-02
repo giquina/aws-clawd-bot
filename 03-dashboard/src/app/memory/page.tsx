@@ -67,8 +67,8 @@ export default function MemoryPage() {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          <p className="text-gray-600">Loading memory...</p>
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600 dark:text-blue-400" />
+          <p className="text-gray-600 dark:text-gray-400">Loading memory...</p>
         </div>
       </div>
     );
@@ -80,7 +80,7 @@ export default function MemoryPage() {
         <Card className="max-w-md">
           <CardHeader>
             <div className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-red-600" />
+              <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
               <CardTitle>Error</CardTitle>
             </div>
             <CardDescription>{error}</CardDescription>
@@ -91,18 +91,18 @@ export default function MemoryPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Memory</h1>
-          <p className="text-gray-600 mt-1">
-            {messages.length} messages • {facts.length} facts stored
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Memory</h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">
+            {messages.length} messages - {facts.length} facts stored
           </p>
         </div>
       </div>
 
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-gray-500" />
         <Input
           type="text"
           placeholder="Search messages and facts..."
@@ -117,7 +117,7 @@ export default function MemoryPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-blue-600" />
+              <MessageSquare className="h-5 w-5 text-blue-600 dark:text-blue-400" />
               <CardTitle>Conversation History</CardTitle>
             </div>
             <CardDescription>
@@ -126,7 +126,7 @@ export default function MemoryPage() {
           </CardHeader>
           <CardContent>
             {filteredMessages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+              <div className="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-500">
                 <MessageSquare className="h-12 w-12 mb-3 opacity-20" />
                 <p className="text-sm">
                   {searchQuery ? 'No messages found' : 'No messages yet'}
@@ -144,16 +144,16 @@ export default function MemoryPage() {
                   return (
                     <div
                       key={msg.id}
-                      className="p-4 rounded-lg border bg-white hover:shadow-sm transition-shadow"
+                      className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:shadow-sm transition-shadow"
                     >
                       <div className="flex items-start gap-3">
                         <div className="mt-1">
                           {msg.role === 'user' ? (
-                            <User className="h-4 w-4 text-blue-600" />
+                            <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                           ) : msg.role === 'assistant' ? (
-                            <Bot className="h-4 w-4 text-green-600" />
+                            <Bot className="h-4 w-4 text-green-600 dark:text-green-400" />
                           ) : (
-                            <MessageSquare className="h-4 w-4 text-gray-600" />
+                            <MessageSquare className="h-4 w-4 text-gray-600 dark:text-gray-400" />
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -162,24 +162,24 @@ export default function MemoryPage() {
                               variant="default"
                               className={
                                 msg.role === 'user'
-                                  ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                                  : 'bg-green-100 text-green-700 hover:bg-green-200'
+                                  ? 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/40'
+                                  : 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/40'
                               }
                             >
                               {msg.role}
                             </Badge>
-                            <div className="flex items-center gap-1 text-xs text-gray-500">
+                            <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                               <Calendar className="h-3 w-3" />
                               {formatDate(msg.created_at)}
                             </div>
                           </div>
-                          <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">
+                          <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
                             {displayContent}
                           </p>
                           {shouldTruncate && (
                             <button
                               onClick={() => toggleExpand(msg.id)}
-                              className="text-xs text-blue-600 hover:text-blue-700 mt-2 font-medium"
+                              className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 mt-2 font-medium"
                             >
                               {isExpanded ? 'Show less' : 'Show more'}
                             </button>
@@ -198,7 +198,7 @@ export default function MemoryPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <Brain className="h-5 w-5 text-purple-600" />
+              <Brain className="h-5 w-5 text-purple-600 dark:text-purple-400" />
               <CardTitle>Stored Facts</CardTitle>
             </div>
             <CardDescription>
@@ -207,7 +207,7 @@ export default function MemoryPage() {
           </CardHeader>
           <CardContent>
             {filteredFacts.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+              <div className="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-gray-500">
                 <Brain className="h-12 w-12 mb-3 opacity-20" />
                 <p className="text-sm">
                   {searchQuery ? 'No facts found' : 'No facts stored yet'}
@@ -217,11 +217,11 @@ export default function MemoryPage() {
               <div className="space-y-6 max-h-[600px] overflow-y-auto pr-2">
                 {Object.entries(factsByCategory).map(([category, categoryFacts]) => (
                   <div key={category}>
-                    <h3 className="font-semibold text-sm text-gray-700 mb-3 flex items-center gap-2">
+                    <h3 className="font-semibold text-sm text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
                       <Badge variant="outline" className="font-normal">
                         {category}
                       </Badge>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
                         ({categoryFacts.length})
                       </span>
                     </h3>
@@ -229,12 +229,12 @@ export default function MemoryPage() {
                       {categoryFacts.map((fact) => (
                         <div
                           key={fact.id}
-                          className="p-3 rounded-lg border bg-white hover:shadow-sm transition-shadow"
+                          className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:shadow-sm transition-shadow"
                         >
-                          <p className="text-sm text-gray-700 mb-2">
+                          <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
                             {fact.fact}
                           </p>
-                          <div className="flex items-center gap-1 text-xs text-gray-500">
+                          <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                             <Calendar className="h-3 w-3" />
                             {formatDate(fact.created_at)}
                           </div>
