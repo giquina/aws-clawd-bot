@@ -3,7 +3,17 @@
 **Goal:** Access ClawdBot EC2 from any computer without needing to copy SSH keys manually.
 
 **Created:** 2026-02-02
-**Status:** Pending
+**Status:** In Progress
+
+---
+
+## Progress
+
+- [x] Create setup scripts (`scripts/setup-dev.ps1` and `scripts/setup-dev.sh`)
+- [ ] Enable AWS SSM on EC2 (needs SSH from main computer)
+- [ ] Store secrets securely
+- [ ] Fix SQLite/persistentMemory issue
+- [ ] Test Telegram from phone
 
 ---
 
@@ -38,33 +48,19 @@ sudo systemctl status amazon-ssm-agent
 
 ---
 
-### 2. Create Setup Script for New Computers
+### 2. Create Setup Script for New Computers ✅ DONE
 
-Create `scripts/setup-dev.sh`:
+Scripts created at `scripts/setup-dev.ps1` (Windows) and `scripts/setup-dev.sh` (Linux/Mac).
 
+Run on Windows:
+```powershell
+.\scripts\setup-dev.ps1
+```
+
+Run on Linux/Mac:
 ```bash
-#!/bin/bash
-echo "🔧 ClawdBot Dev Environment Setup"
-
-# Check/install AWS CLI
-if ! command -v aws &> /dev/null; then
-    echo "Installing AWS CLI..."
-    # Windows
-    winget install Amazon.AWSCLI
-    # Mac: brew install awscli
-    # Linux: sudo apt install awscli
-fi
-
-# Configure AWS (will prompt for keys)
-echo "Configuring AWS credentials..."
-aws configure set region eu-north-1
-aws configure
-
-# Test SSM connection
-echo "Testing EC2 connection via SSM..."
-aws ssm start-session --target i-009f070a76a0d91c1 --region eu-north-1
-
-echo "✅ Setup complete!"
+chmod +x scripts/setup-dev.sh
+./scripts/setup-dev.sh
 ```
 
 ---
