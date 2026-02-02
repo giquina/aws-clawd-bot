@@ -866,6 +866,114 @@ app.post('/telegram', async (req, res) => {
     }
 });
 
+// Telegram message processor - returns response text instead of sending
+// Used by the Telegram long-polling handler which sends replies automatically
+async function processMessageForTelegram(incomingMsg, context) {
+    const { userId, chatId, platform, numMedia, mediaUrl, mediaContentType } = context;
+
+    try {
+        // Save incoming message to memory
+        if (memory) {
+            memory.saveMessage(userId, 'user', incomingMsg);
+        }
+
+        // AUTO-CONTEXT: Check if this chat has a registered context
+        let autoRepo = null;
+        let autoCompany = null;
+        const chatContext = chatRegistry.getContext(chatId || userId);
+
+        if (chatContext && chatContext.type === 'repo' && chatContext.value) {
+            autoRepo = chatContext.value;
+            activeProject.setPermanentProject(userId, autoRepo);
+            console.log(`[AutoContext] Telegram chat ${chatId} -> repo: ${autoRepo}`);
+        } else if (chatContext && chatContext.type === 'company' && chatContext.value) {
+            autoCompany = chatContext.value;
+            console.log(`[AutoContext] Telegram chat ${chatId} -> company: ${autoCompany}`);
+        }
+
+        // CHECK FOR PENDING CONFIRMATIONS
+        if (confirmationManager && confirmationManager.hasPending(userId)) {
+            const confirmResult = confirmationManager.isConfirmation(incomingMsg);
+
+            if (confirmResult === 'yes') {
+                const pending = confirmationManager.confirm(userId);
+                if (pending && actionExecutor) {
+                    const execResult = await actionExecutor.execute(pending.action, pending.params, pending.context);
+                    return execResult.success
+                        ? `✅ Done!\n\n${execResult.message}`
+                        : `❌ Failed: ${execResult.error || execResult.message}`;
+                }
+            } else if (confirmResult === 'no') {
+                confirmationManager.cancel(userId);
+                return '❌ Cancelled.';
+            }
+        }
+
+        // RUN HOOKS (smart router converts natural language to commands)
+        let processedMsg = incomingMsg;
+        if (hooks) {
+            const hookContext = {
+                userId,
+                chatId,
+                platform: 'telegram',
+                mediaUrl,
+                mediaContentType,
+                numMedia: numMedia || 0,
+                autoRepo,
+                autoCompany
+            };
+            processedMsg = await hooks.preprocess(incomingMsg, hookContext);
+        }
+
+        // TRY SKILL ROUTING FIRST
+        if (skillRegistry) {
+            const skillContext = {
+                userId,
+                chatId,
+                platform: 'telegram',
+                mediaUrl,
+                numMedia: numMedia || 0,
+                autoRepo,
+                autoCompany,
+                activeProject: activeProject?.getProject(userId)
+            };
+
+            const skillResult = await skillRegistry.route(processedMsg, skillContext);
+
+            if (skillResult.handled) {
+                const responseText = skillResult.success ? skillResult.message : `❌ ${skillResult.message}`;
+                if (memory) {
+                    memory.saveMessage(userId, 'assistant', responseText);
+                }
+                return responseText;
+            }
+        }
+
+        // FALLBACK TO AI
+        if (aiHandler) {
+            const response = await aiHandler.processQuery(processedMsg, {
+                userId,
+                platform: 'telegram',
+                mediaUrl,
+                projectContext: activeProject?.getProject(userId),
+                autoRepo,
+                autoCompany
+            });
+
+            if (memory) {
+                memory.saveMessage(userId, 'assistant', response);
+            }
+            return response;
+        }
+
+        return "I couldn't process that. Try 'help' to see available commands.";
+
+    } catch (error) {
+        console.error('[Telegram] Error processing message:', error);
+        return `Sorry, an error occurred: ${error.message}`;
+    }
+}
+
 // Async message processor - runs after webhook responds
 // Supports both WhatsApp (default) and Telegram platforms
 async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext, platform = 'whatsapp') {
@@ -1597,7 +1705,45 @@ app.listen(port, '0.0.0.0', async () => {
     let telegramInitialized = false;
     if (process.env.TELEGRAM_BOT_TOKEN) {
         try {
-            telegramInitialized = await telegramHandler.initialize();
+            // Message handler for Telegram - routes through same pipeline as WhatsApp
+            const telegramMessageHandler = async (messageData) => {
+                const { text, userId, chatId, numMedia, mediaUrl, mediaContentType, platform } = messageData;
+
+                console.log(`[Telegram] Message from ${userId}: ${text?.substring(0, 50) || '[media]'}`);
+
+                // Check authorization
+                const authorizedUsers = (process.env.TELEGRAM_AUTHORIZED_USERS || '').split(',').map(id => id.trim());
+                const hqChatId = process.env.TELEGRAM_HQ_CHAT_ID;
+
+                if (!authorizedUsers.includes(String(userId)) && String(userId) !== hqChatId) {
+                    console.log(`[Telegram] Unauthorized user: ${userId}`);
+                    return 'Sorry, you are not authorized to use this bot.';
+                }
+
+                // Build context similar to WhatsApp
+                const context = {
+                    userId: String(userId),
+                    chatId: String(chatId),
+                    platform: 'telegram',
+                    numMedia: numMedia || 0,
+                    mediaUrl: mediaUrl,
+                    mediaContentType: mediaContentType
+                };
+
+                try {
+                    // Process through the same pipeline as WhatsApp
+                    const response = await processMessageForTelegram(text || '', context);
+                    return response;
+                } catch (error) {
+                    console.error('[Telegram] Error processing message:', error);
+                    return 'Sorry, I encountered an error processing your message.';
+                }
+            };
+
+            telegramInitialized = await telegramHandler.initialize({
+                messageHandler: telegramMessageHandler
+            });
+
             if (telegramInitialized) {
                 MessagingPlatform.setTelegramHandler(telegramHandler);
 
