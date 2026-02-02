@@ -44,11 +44,85 @@ ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 "pm2 logs clawd-bot --line
 
 ## API Endpoints
 
+### WhatsApp/GitHub Webhooks
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/webhook` | POST | Twilio WhatsApp webhook (incoming messages) |
 | `/github-webhook` | POST | GitHub webhook (events: push, PR, issues) |
 | `/health` | GET | Health check and status information |
+
+### REST API (for MCP Server & Claude Code App)
+All API endpoints require `X-API-Key` header with `CLAWDBOT_API_KEY` value.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/status` | GET | Bot status, uptime, features |
+| `/api/message` | POST | Send message & get response (like WhatsApp) |
+| `/api/projects` | GET | List all GitHub repos |
+| `/api/project/:repo/status` | GET | Get TODO.md tasks for a repo |
+| `/api/project/:repo/deploy` | POST | Trigger deployment |
+| `/api/project/:repo/command` | POST | Run whitelisted command |
+| `/api/memory` | GET | Get conversation history & facts |
+| `/api/whatsapp/send` | POST | Send WhatsApp message directly |
+| `/api/skills` | GET | List all available skills |
+
+## MCP Server (Claude Code App Integration)
+
+ClawdBot includes an MCP server that lets you control it from Claude Desktop, Claude Code App, or any MCP client.
+
+### Setup
+
+1. Add to your Claude Desktop config (`%APPDATA%\Claude\claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "clawdbot": {
+      "command": "node",
+      "args": ["C:/Giquina-Projects/aws-clawd-bot/02-whatsapp-bot/mcp-server/index.js"],
+      "env": {
+        "CLAWDBOT_URL": "http://16.171.150.151:3000",
+        "CLAWDBOT_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
+
+### Available MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `clawdbot_status` | Get bot status, uptime, features |
+| `clawdbot_message` | Send message & get response (like WhatsApp) |
+| `clawdbot_projects` | List all GitHub repos |
+| `clawdbot_project_status` | Get TODO.md tasks for a repo |
+| `clawdbot_deploy` | Trigger deployment |
+| `clawdbot_command` | Run whitelisted commands (tests, build, logs) |
+| `clawdbot_memory` | Get conversation history & facts |
+| `clawdbot_whatsapp` | Send WhatsApp message directly |
+| `clawdbot_skills` | List all available skills |
+
+### Multi-Client Architecture
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  WhatsApp       │     │  Claude Desktop │     │  Claude Code    │
+│  (Mobile)       │     │  (Desktop)      │     │  CLI            │
+└────────┬────────┘     └────────┬────────┘     └────────┬────────┘
+         │                       │                       │
+         │ Twilio               │ MCP                   │ (local)
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 ↓
+                  ┌──────────────────────────┐
+                  │   ClawdBot (AWS EC2)     │
+                  │   24/7 Always On         │
+                  │                          │
+                  │   • Shared memory        │
+                  │   • Project context      │
+                  │   • GitHub access        │
+                  │   • Command execution    │
+                  └──────────────────────────┘
+```
 
 ## Architecture
 
@@ -151,6 +225,8 @@ ClawdBot uses smart AI routing to minimize costs:
 | `02-whatsapp-bot/lib/confirmation-manager.js` | Safe action confirmations |
 | `02-whatsapp-bot/lib/actions/code-generator.js` | Creates branches + PRs |
 | `02-whatsapp-bot/lib/actions/receipt-processor.js` | Claude Vision receipts |
+| `02-whatsapp-bot/mcp-server/index.js` | MCP server for Claude Desktop/App |
+| `02-whatsapp-bot/mcp-server/README.md` | MCP setup documentation |
 | `config/project-registry.json` | 16 projects with capabilities |
 | `config/.env.local` | Environment variables (never modify via code) |
 
@@ -161,6 +237,7 @@ Required for multi-AI:
 GROQ_API_KEY=gsk_...        # FREE - get from console.groq.com
 ANTHROPIC_API_KEY=sk-...    # Claude - required
 XAI_API_KEY=xai-...         # Grok - optional, for social search
+CLAWDBOT_API_KEY=...        # API key for MCP/REST API access
 ```
 
 ## Adding a New Skill

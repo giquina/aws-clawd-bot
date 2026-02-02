@@ -150,6 +150,291 @@ try {
     // Already logged above
 }
 
+// ================================================
+// API ENDPOINTS (for MCP Server & Claude Code App)
+// ================================================
+
+// API Authentication middleware
+const apiAuth = (req, res, next) => {
+    const apiKey = req.headers['x-api-key'] || req.query.apiKey;
+    const validKey = process.env.CLAWDBOT_API_KEY || 'dev-key-change-me';
+
+    if (apiKey !== validKey) {
+        return res.status(401).json({ error: 'Invalid API key' });
+    }
+    next();
+};
+
+// GET /api/status - Get ClawdBot status
+app.get('/api/status', apiAuth, (req, res) => {
+    const stats = memory ? memory.getStats(process.env.YOUR_WHATSAPP) : null;
+    const skills = skillRegistry ? skillRegistry.listSkills() : [];
+
+    res.json({
+        success: true,
+        status: 'online',
+        uptime: process.uptime(),
+        version: '2.3',
+        features: {
+            memory: !!memory,
+            skills: !!skillRegistry,
+            scheduler: !!scheduler,
+            projectIntelligence: !!projectIntelligence,
+            actionExecutor: !!actionExecutor
+        },
+        skillCount: skills.length,
+        stats
+    });
+});
+
+// POST /api/message - Send a message (same as WhatsApp would)
+app.post('/api/message', apiAuth, async (req, res) => {
+    try {
+        const { message, userId } = req.body;
+
+        if (!message) {
+            return res.status(400).json({ error: 'Message is required' });
+        }
+
+        const effectiveUserId = userId || process.env.YOUR_WHATSAPP;
+
+        // Save to memory
+        if (memory) {
+            memory.saveMessage(effectiveUserId, 'user', message);
+        }
+
+        // Process through skills or AI
+        let response = null;
+        let handled = false;
+
+        // Preprocess with smart router
+        const processedMsg = await hooks.preprocess(message, { userId: effectiveUserId });
+
+        // Try skills first
+        if (skillRegistry) {
+            const result = await skillRegistry.route(processedMsg, {
+                userId: effectiveUserId,
+                memory: memory
+            });
+
+            if (result && result.handled) {
+                response = result.message;
+                handled = true;
+            }
+        }
+
+        // Fallback to AI
+        if (!handled) {
+            response = await aiHandler.processQuery(message);
+        }
+
+        // Save response
+        if (memory) {
+            memory.saveMessage(effectiveUserId, 'assistant', response);
+        }
+
+        res.json({
+            success: true,
+            message: response,
+            processed: processedMsg !== message ? processedMsg : null
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/projects - List all projects
+app.get('/api/projects', apiAuth, async (req, res) => {
+    try {
+        const projectManager = require('./lib/project-manager');
+        const repos = await projectManager.listRepos();
+
+        res.json({
+            success: true,
+            count: repos.length,
+            projects: repos
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/project/:repo/status - Get project status (TODO.md)
+app.get('/api/project/:repo/status', apiAuth, async (req, res) => {
+    try {
+        const projectManager = require('./lib/project-manager');
+        const todoParser = require('./lib/todo-parser');
+
+        const repo = req.params.repo;
+        const todoContent = await projectManager.getFile(repo, 'TODO.md');
+
+        if (!todoContent) {
+            return res.json({
+                success: true,
+                repo,
+                hasTodo: false,
+                message: 'No TODO.md found'
+            });
+        }
+
+        const parsed = todoParser.parse(todoContent);
+
+        res.json({
+            success: true,
+            repo,
+            hasTodo: true,
+            tasks: parsed
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/project/:repo/deploy - Trigger deployment
+app.post('/api/project/:repo/deploy', apiAuth, async (req, res) => {
+    try {
+        const commandWhitelist = require('./lib/command-whitelist');
+        const repo = req.params.repo;
+
+        // Verify deployment is allowed
+        const deployCmd = commandWhitelist.getCommand('deploy', repo);
+        if (!deployCmd) {
+            return res.status(400).json({ error: `Deployment not configured for ${repo}` });
+        }
+
+        // Execute deployment
+        const { exec } = require('child_process');
+        const result = await new Promise((resolve, reject) => {
+            exec(deployCmd.command, { timeout: 120000 }, (error, stdout, stderr) => {
+                if (error) reject(error);
+                else resolve({ stdout, stderr });
+            });
+        });
+
+        res.json({
+            success: true,
+            repo,
+            output: result.stdout,
+            errors: result.stderr
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/project/:repo/command - Run whitelisted command
+app.post('/api/project/:repo/command', apiAuth, async (req, res) => {
+    try {
+        const commandWhitelist = require('./lib/command-whitelist');
+        const repo = req.params.repo;
+        const { command } = req.body;
+
+        if (!command) {
+            return res.status(400).json({ error: 'Command is required' });
+        }
+
+        // Verify command is whitelisted
+        const allowedCmd = commandWhitelist.getCommand(command, repo);
+        if (!allowedCmd) {
+            return res.status(403).json({
+                error: `Command '${command}' not allowed for ${repo}`,
+                allowed: commandWhitelist.listCommands(repo)
+            });
+        }
+
+        // Execute command
+        const { exec } = require('child_process');
+        const result = await new Promise((resolve, reject) => {
+            exec(allowedCmd.command, { timeout: 60000 }, (error, stdout, stderr) => {
+                if (error) reject(error);
+                else resolve({ stdout, stderr });
+            });
+        });
+
+        res.json({
+            success: true,
+            repo,
+            command,
+            output: result.stdout,
+            errors: result.stderr
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/memory - Get conversation memory
+app.get('/api/memory', apiAuth, (req, res) => {
+    try {
+        const userId = req.query.userId || process.env.YOUR_WHATSAPP;
+        const limit = parseInt(req.query.limit) || 20;
+
+        if (!memory) {
+            return res.json({ success: true, messages: [], facts: [] });
+        }
+
+        const messages = memory.getConversation(userId, limit);
+        const facts = memory.getFacts(userId);
+        const stats = memory.getStats(userId);
+
+        res.json({
+            success: true,
+            userId,
+            messages,
+            facts,
+            stats
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/whatsapp/send - Send WhatsApp message directly
+app.post('/api/whatsapp/send', apiAuth, async (req, res) => {
+    try {
+        const { message, to } = req.body;
+
+        if (!message) {
+            return res.status(400).json({ error: 'Message is required' });
+        }
+
+        await sendWhatsAppMessage(message, to ? `whatsapp:${to}` : null);
+
+        res.json({
+            success: true,
+            sent: true,
+            to: to || process.env.YOUR_WHATSAPP
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/skills - List all available skills
+app.get('/api/skills', apiAuth, (req, res) => {
+    try {
+        const skills = skillRegistry ? skillRegistry.listSkills() : [];
+
+        res.json({
+            success: true,
+            count: skills.length,
+            skills: skills.map(s => ({
+                name: s.name,
+                description: s.description,
+                priority: s.priority,
+                commands: s.commands?.map(c => c.usage || c.pattern?.toString())
+            }))
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ================================================
+// END API ENDPOINTS
+// ================================================
+
 // Health check endpoint
 app.get('/health', (req, res) => {
     const stats = memory ? memory.getStats(process.env.YOUR_WHATSAPP) : null;
@@ -546,23 +831,38 @@ Type "help" for commands! 🤖`;
 // Start server
 app.listen(port, '0.0.0.0', () => {
     console.log('');
-    console.log('ClawdBot WhatsApp Server v2.1');
+    console.log('ClawdBot WhatsApp Server v2.3');
     console.log('=====================================');
     console.log(`   Port: ${port}`);
     console.log(`   User: ${process.env.YOUR_WHATSAPP}`);
     console.log(`   Repos: ${process.env.REPOS_TO_MONITOR}`);
     console.log('');
-    console.log('   Endpoints:');
+    console.log('   WhatsApp Endpoints:');
     console.log(`   • POST /webhook        - Twilio WhatsApp`);
     console.log(`   • POST /github-webhook - GitHub events`);
     console.log(`   • GET  /health         - Health check`);
+    console.log('');
+    console.log('   API Endpoints (for MCP/Claude Code App):');
+    console.log(`   • GET  /api/status           - Bot status`);
+    console.log(`   • POST /api/message          - Send message`);
+    console.log(`   • GET  /api/projects         - List repos`);
+    console.log(`   • GET  /api/project/:r/status - TODO.md`);
+    console.log(`   • POST /api/project/:r/deploy - Deploy`);
+    console.log(`   • POST /api/project/:r/command - Run cmd`);
+    console.log(`   • GET  /api/memory           - History`);
+    console.log(`   • POST /api/whatsapp/send    - Send WA`);
+    console.log(`   • GET  /api/skills           - List skills`);
     console.log('');
     console.log('   Features:');
     console.log(`   • Memory: ${memory ? 'Persistent' : 'In-memory only'}`);
     console.log(`   • Skills: ${skillRegistry ? 'Loaded' : 'Not available'}`);
     console.log(`   • Scheduler: ${scheduler ? 'Active' : 'Not available'}`);
     console.log(`   • SmartRouter: Active (NL -> commands)`);
-    console.log(`   • GitHub Webhook: ${process.env.GITHUB_WEBHOOK_SECRET ? 'Secured' : 'Open (no secret)'}`);
+    console.log(`   • ProjectIntel: ${projectIntelligence ? 'Active' : 'Not available'}`);
+    console.log(`   • ActionExecutor: ${actionExecutor ? 'Active' : 'Not available'}`);
+    console.log(`   • API Auth: ${process.env.CLAWDBOT_API_KEY ? 'Configured' : 'Default key (change!)'}`);
+    console.log('');
+    console.log('   MCP Server: node mcp-server/index.js');
     console.log('');
 });
 
