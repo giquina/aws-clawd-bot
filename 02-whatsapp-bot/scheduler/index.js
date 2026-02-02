@@ -5,6 +5,8 @@ const { Scheduler, createScheduler, getScheduler } = require('./scheduler');
 const morningBrief = require('./jobs/morning-brief');
 const proactiveAlerts = require('./jobs/proactive-alerts');
 const nightlyAutonomous = require('./jobs/nightly-autonomous');
+const endOfDay = require('./jobs/end-of-day');
+const heartbeat = require('./jobs/heartbeat');
 
 module.exports = {
     // Main scheduler class and factories
@@ -16,7 +18,9 @@ module.exports = {
     jobs: {
         morningBrief,
         proactiveAlerts,
-        nightlyAutonomous
+        nightlyAutonomous,
+        endOfDay,
+        heartbeat
     },
 
     // Common cron expressions for convenience

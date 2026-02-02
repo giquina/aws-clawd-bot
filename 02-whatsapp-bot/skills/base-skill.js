@@ -198,13 +198,27 @@ class BaseSkill {
   }
 
   /**
-   * Create a success response
+   * Create a success response with ✓ template
+   * Format: ✓ {task} [Files: {count}] [Time: {duration}] [Cost: ~${estimate}]
    * @param {string} message - Success message
    * @param {any} data - Optional data payload
+   * @param {Object} meta - Optional metadata (files, time, cost)
    * @returns {{success: true, message: string, data?: any}}
    */
-  success(message, data = null) {
-    const response = { success: true, message };
+  success(message, data = null, meta = {}) {
+    let formatted = `✓ ${message}`;
+
+    // Add metadata if provided
+    const parts = [];
+    if (meta.files) parts.push(`Files: ${meta.files}`);
+    if (meta.time) parts.push(`Time: ${meta.time}`);
+    if (meta.cost) parts.push(`Cost: ~$${meta.cost}`);
+
+    if (parts.length > 0) {
+      formatted += `\n  ${parts.join(' | ')}`;
+    }
+
+    const response = { success: true, message: formatted };
     if (data !== null) {
       response.data = data;
     }
@@ -212,17 +226,71 @@ class BaseSkill {
   }
 
   /**
-   * Create an error response
+   * Create an error response with ✗ template
+   * Format: ✗ {task} failed
+   *         Reason: {reason}
+   *         Attempted: {what you tried}
+   *         Suggestion: {next step}
    * @param {string} message - Error message
    * @param {Error|string} error - Optional error object
+   * @param {Object} details - Optional details (attempted, suggestion)
    * @returns {{success: false, message: string, error?: string}}
    */
-  error(message, error = null) {
-    const response = { success: false, message };
+  error(message, error = null, details = {}) {
+    let formatted = `✗ ${message}`;
+
+    if (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      formatted += `\n  Reason: ${errorMsg}`;
+    }
+
+    if (details.attempted) {
+      formatted += `\n  Attempted: ${details.attempted}`;
+    }
+
+    if (details.suggestion) {
+      formatted += `\n  Suggestion: ${details.suggestion}`;
+    }
+
+    const response = { success: false, message: formatted };
     if (error) {
       response.error = error instanceof Error ? error.message : String(error);
     }
     return response;
+  }
+
+  /**
+   * Create a warning/approval response with ⚠ template
+   * Format: ⚠ {task} requires approval
+   *         Estimated cost: ${amount}
+   *         Risk level: {low/medium/high}
+   *         Reply 'yes' to proceed
+   * @param {string} task - Task description
+   * @param {Object} options - Warning options
+   * @param {string} options.cost - Estimated cost
+   * @param {string} options.risk - Risk level (low/medium/high)
+   * @param {string} options.action - Action to confirm (default: "Reply 'yes' to proceed")
+   * @returns {{success: true, message: string, needsApproval: true}}
+   */
+  warning(task, options = {}) {
+    let formatted = `⚠ ${task} requires approval`;
+
+    if (options.cost) {
+      formatted += `\n  Estimated cost: $${options.cost}`;
+    }
+
+    if (options.risk) {
+      formatted += `\n  Risk level: ${options.risk}`;
+    }
+
+    formatted += `\n  ${options.action || "Reply 'yes' to proceed"}`;
+
+    return {
+      success: true,
+      message: formatted,
+      needsApproval: true,
+      approvalData: options.data || null
+    };
   }
 
   /**

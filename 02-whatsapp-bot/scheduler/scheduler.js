@@ -287,63 +287,19 @@ class Scheduler {
      * @returns {Promise<string>} Message to send
      */
     async handleEveningReport(params = {}) {
-        const hour = new Date().getHours();
-        let greeting = 'Good evening';
-
-        // Build evening summary
-        let message = `${greeting}! Here's your end-of-day report:\n\n`;
-
-        try {
-            // Get today's activity summary
-            if (this.db && this.db.db) {
-                const today = new Date().toISOString().split('T')[0];
-
-                // Query conversations for today using prepared statements
-                const convStmt = this.db.db.prepare(
-                    'SELECT COUNT(*) as count FROM conversations WHERE DATE(created_at) = ?'
-                );
-                const convResult = convStmt.get(today);
-                const conversationCount = convResult?.count || 0;
-
-                // Query completed tasks for today
-                const taskStmt = this.db.db.prepare(
-                    'SELECT COUNT(*) as count FROM tasks WHERE DATE(completed_at) = ?'
-                );
-                const taskResult = taskStmt.get(today);
-                const tasksCompletedCount = taskResult?.count || 0;
-
-                message += `Today's activity:\n`;
-                message += `- Conversations: ${conversationCount}\n`;
-                message += `- Tasks completed: ${tasksCompletedCount}\n`;
-            } else {
-                message += `Activity tracking not available (database not connected)\n`;
-            }
-
-            message += `\nHave a good evening!`;
-        } catch (error) {
-            console.error('[Scheduler] Error generating evening report:', error);
-            message += `Unable to generate full report. Have a good evening!`;
-        }
-
-        return message;
+        const endOfDay = require('./jobs/end-of-day');
+        return endOfDay.generate(this.db, params);
     }
 
     /**
-     * Health check handler - sends system status
+     * Health check handler - runs heartbeat monitoring
+     * Only sends message if issues are detected
      * @param {Object} params - Job parameters
-     * @returns {Promise<string>} Message to send
+     * @returns {Promise<string|null>} Alert message or null if all OK
      */
     async handleHealthCheck(params = {}) {
-        const uptime = Math.floor(process.uptime());
-        const hours = Math.floor(uptime / 3600);
-        const minutes = Math.floor((uptime % 3600) / 60);
-        const memoryMB = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2);
-
-        return `Health Check Report:\n` +
-               `Status: Online\n` +
-               `Uptime: ${hours}h ${minutes}m\n` +
-               `Memory: ${memoryMB} MB\n` +
-               `Active Jobs: ${this.jobs.size}`;
+        const heartbeat = require('./jobs/heartbeat');
+        return heartbeat.check(this.db, params);
     }
 
     /**
