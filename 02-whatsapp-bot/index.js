@@ -935,7 +935,7 @@ async function processMessageForTelegram(incomingMsg, context) {
                 numMedia: numMedia || 0,
                 autoRepo,
                 autoCompany,
-                activeProject: activeProject?.getProject(userId)
+                activeProject: activeProject?.getActiveProject(userId)
             };
 
             const skillResult = await skillRegistry.route(processedMsg, skillContext);
@@ -955,7 +955,7 @@ async function processMessageForTelegram(incomingMsg, context) {
                 userId,
                 platform: 'telegram',
                 mediaUrl,
-                projectContext: activeProject?.getProject(userId),
+                projectContext: activeProject?.getActiveProject(userId),
                 autoRepo,
                 autoCompany
             });
