@@ -67,9 +67,13 @@ npm run dev                    # Development with nodemon auto-reload
 npm start                      # Production mode
 curl localhost:3000/health     # Health check
 
+# Testing
+npm test                       # Run bot tests
+
 # Security
 npm run audit                  # Check for vulnerabilities
 npm run audit:fix              # Auto-fix vulnerabilities
+npm run security-check         # Audit with high severity threshold
 
 # Deploy to AWS EC2 (quick)
 scp -i ~/.ssh/clawd-bot-key.pem 02-whatsapp-bot/index.js ubuntu@16.171.150.151:/opt/clawd-bot/02-whatsapp-bot/

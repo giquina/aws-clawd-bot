@@ -1,16 +1,17 @@
-# ClawdBot v2.0 - AI Coding Assistant for WhatsApp
+# ClawdBot v2.3 - AI Coding Agent for Telegram/WhatsApp/Voice
 
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Claude AI](https://img.shields.io/badge/Powered%20by-Claude%20AI-orange)](https://anthropic.com)
+[![Platform](https://img.shields.io/badge/Platform-Telegram-26A5E4?logo=telegram&logoColor=white)](https://telegram.org/)
 [![Platform](https://img.shields.io/badge/Platform-WhatsApp-25D366?logo=whatsapp&logoColor=white)](https://www.whatsapp.com/)
 [![AWS](https://img.shields.io/badge/Deployed%20on-AWS%20EC2-FF9900?logo=amazon-aws&logoColor=white)](https://aws.amazon.com/)
 
-**Your personal AI coding assistant running 24/7, controlled entirely from WhatsApp.**
+**Your personal AI coding agent running 24/7, controllable via Telegram (primary), WhatsApp (backup), or Voice calls (critical).**
 
-ClawdBot v2.0 transforms WhatsApp into a powerful developer command center. Send commands via text message to manage GitHub repositories, **write and edit code with AI**, trigger GitHub Actions, review PRs, track tasks, get morning briefings, and leverage Claude AI for coding assistance - all while you're on the go.
+ClawdBot v2.3 is a full Claude Code Agent - read any repo, parse TODOs, deploy code, run tests, and get proactive morning reports. Includes multi-AI routing (Groq FREE, Claude Opus/Sonnet, Grok, Perplexity), an autonomous agent system for nightly task execution, smart alert escalation with voice calling for emergencies, and 37+ modular skills.
 
-> 🚀 **Now running 24/7 on AWS EC2** - Send a WhatsApp message anytime and ClawdBot will respond!
+> 🚀 **Running 24/7 on AWS EC2** - Send a message via Telegram or WhatsApp anytime, or receive voice calls for critical alerts!
 
 ---
 
@@ -18,17 +19,22 @@ ClawdBot v2.0 transforms WhatsApp into a powerful developer command center. Send
 
 | Feature | Description |
 |---------|-------------|
+| **Multi-Platform** | Telegram (primary), WhatsApp (backup), Voice calls (critical alerts) |
+| **Multi-AI Routing** | Groq (FREE), Claude Opus/Sonnet, Grok, Perplexity - smart cost optimization |
 | **AI Code Writing** | Edit files, create new files, fix issues - AI generates code and creates PRs |
+| **Voice Calling** | Twilio-powered outbound calls for emergencies and unacknowledged alerts |
+| **Alert Escalation** | Telegram → WhatsApp → Voice call with configurable delays |
 | **GitHub Actions** | List workflows, view runs, trigger workflows remotely |
 | **Code Review** | AI-powered PR review and file improvement suggestions |
 | **Repository Stats** | Contributors, activity, language breakdown, comprehensive analytics |
-| **File Operations** | Read actual file contents, search code across repos |
-| **PR Management** | View PRs, see diffs, create branches, comment on issues |
-| **Persistent Memory** | Remembers conversations and facts you share across sessions (SQLite) |
-| **Skills System** | 12+ modular skills with extensible plugin architecture |
-| **Scheduler** | Automated morning briefs, reminders, and recurring tasks (node-cron) |
-| **Claude AI** | Natural language processing for coding questions and assistance |
-| **Task Management** | Track tasks with priorities (urgent/high/medium/low) |
+| **Remote Execution** | Deploy, run tests, view logs on EC2 via whitelisted commands |
+| **Chat Registry** | Per-chat context (repo/HQ), notification levels, auto-routing |
+| **Action Control** | Propose-confirm-execute model with undo, pause, stop capabilities |
+| **Persistent Memory** | Remembers conversations and facts across sessions (SQLite) |
+| **Skills System** | 37+ modular skills with extensible plugin architecture |
+| **Scheduler** | Morning briefs, deadline checks, nightly autonomous agent |
+| **MCP Server** | Control from Claude Desktop, Claude Code App, or any MCP client |
+| **Audit Logging** | Full action and message logging for accountability (JSONL) |
 | **24/7 AWS Deployment** | Runs on EC2 with PM2 process management, always available |
 
 ---
@@ -76,125 +82,103 @@ npm run dev    # Auto-reload on file changes (uses nodemon)
 
 ---
 
-## WhatsApp Commands
+## Commands
 
-### Help & Navigation
+Commands work via both Telegram and WhatsApp. The smart router also handles natural language (e.g., "what's left on judo" → `project status judo`).
+
+### Core Commands
 
 | Command | Description |
 |---------|-------------|
 | `help` | Show all available commands |
 | `help <skill>` | Show commands for a specific skill |
-| `commands` | Alias for help |
-| `skills` | List all loaded skills |
-| `status` | Check bot health and statistics |
+| `project status [repo]` | Show TODO.md tasks for a repo |
+| `my repos` | List all your GitHub repos |
+| `switch to <repo>` | Set active project context |
 
-### Memory & Facts
-
-| Command | Description |
-|---------|-------------|
-| `remember <fact>` | Save a fact about yourself |
-| `my facts` | List all stored facts |
-| `what do you know about me` | Alternative for listing facts |
-| `forget <topic>` | Delete facts containing a topic |
-| `clear memory` | Clear conversation history |
-
-### GitHub Integration
+### Action Control
 
 | Command | Description |
 |---------|-------------|
-| `list repos` | List all monitored repositories |
-| `analyze <repo>` | Get repository statistics and code structure |
-| `read file <repo> <path>` | **Read actual file contents from GitHub** |
-| `search <repo> <query>` | Search code in the repository |
-| `list branches <repo>` | List all branches |
-| `commits <repo>` | Show recent commits |
-| `view pr <repo> #<n>` | View PR details, files changed, diff summary |
-| `create branch <repo> <name>` | Create a new branch from main |
-| `create issue <repo> <title>` | Create a new GitHub issue |
-| `close issue <repo> #<number>` | Close an issue |
-| `comment <repo> #<number> <message>` | Add comment to issue/PR |
-| `create pr <repo> <title>` | Create a pull request |
+| `yes` / `confirm` | Confirm pending action |
+| `no` / `reject` | Reject pending action |
+| `undo` | Reverse last completed action |
+| `stop` / `cancel` | Cancel current action |
+| `explain` | Get details about pending action |
 
-### AI Code Writing (NEW in v2.0)
+### Remote Execution
 
 | Command | Description |
 |---------|-------------|
-| `fix issue <repo> #<n>` | Analyze issue and suggest a fix |
-| `edit file <repo> <path> <instructions>` | Edit a file with AI assistance, creates PR |
-| `create file <repo> <path> <description>` | Create new file based on description |
-| `quick fix <repo> <path> <what to fix>` | Quick edit and create PR |
+| `deploy <repo>` | Deploy with confirmation |
+| `run tests <repo>` | Run npm test |
+| `logs <repo>` | View PM2 logs |
+| `restart <repo>` | Restart PM2 process |
+| `remote status` | Show all PM2 processes |
 
-### GitHub Actions (NEW in v2.0)
-
-| Command | Description |
-|---------|-------------|
-| `workflows <repo>` | List all workflows |
-| `runs <repo>` | Show recent workflow runs |
-| `run workflow <repo> <name>` | Trigger a workflow manually |
-| `run status <repo> <id>` | Check workflow run status |
-
-### Code Review (NEW in v2.0)
+### Chat Management
 
 | Command | Description |
 |---------|-------------|
-| `review pr <repo> #<n>` | AI code review of a pull request |
-| `review file <repo> <path>` | AI review of a specific file |
-| `improve <repo> <path>` | Get improvement suggestions for a file |
+| `register chat for <repo>` | Register chat for a repository |
+| `register chat as hq` | Register as HQ (cross-repo access) |
+| `context` | Show current chat context |
+| `set notifications <level>` | all / critical / digest |
 
-### Repository Stats (NEW in v2.0)
-
-| Command | Description |
-|---------|-------------|
-| `stats <repo>` | Comprehensive repo statistics |
-| `contributors <repo>` | Top contributors list |
-| `activity <repo>` | Recent activity summary |
-| `languages <repo>` | Language breakdown with visual bars |
-
-### Morning Brief & Scheduler
+### HQ Commands (cross-repo)
 
 | Command | Description |
 |---------|-------------|
-| `morning brief` or `brief` | Trigger a morning brief immediately |
-| `set brief time HH:MM` | Set daily brief time (24-hour format) |
-| `brief settings` | Show current brief configuration |
+| `urgent` | Most urgent task across ALL repos |
+| `all projects` | Summary of all projects |
+| `global brief` | Aggregated morning brief |
+| `completion rate` | Overall completion stats |
+
+### Voice Calling
+
+| Command | Description |
+|---------|-------------|
+| `call me` | Call immediately |
+| `call me about <message>` | Call with specific message |
+| `call me at HH:MM` | Schedule call for time |
+| `voice status` | Show voice configuration |
 
 ### AI Assistance
 
-Any message that doesn't match a specific command is sent to Claude AI for natural language processing. You can ask coding questions, request explanations, or get help with development tasks.
+Any message that doesn't match a specific command is routed to the appropriate AI provider:
+- Simple queries → Groq (FREE)
+- Planning/strategy → Claude Opus
+- Code/debugging → Claude Sonnet
+- Social/Twitter → Grok
+- Deep research → Perplexity
 
 ---
 
 ## Architecture
 
 ```
-WhatsApp --> Twilio --> Express Webhook (port 3000)
-                              |
-                              v
-                      +-------+-------+
-                      |  Skills Router |
-                      +-------+-------+
-                              |
-              +---------------+---------------+
-              |               |               |
-              v               v               v
-         +--------+     +----------+    +----------+
-         | Memory |     |  GitHub  |    | Scheduler|
-         | (SQLite)|    | (Octokit)|    |(node-cron)|
-         +--------+     +----------+    +----------+
-              |               |               |
-              v               v               v
-         +--------+     +----------+    +----------+
-         |  Facts |     |   PRs    |    |  Jobs    |
-         |  Tasks |     |  Issues  |    |  Briefs  |
-         |  History|    | Branches |    | Reminders|
-         +--------+     +----------+    +----------+
-              |
-              v
-         +--------+
-         |Claude AI|
-         +--------+
+Telegram/WhatsApp → Express (index.js) → Hooks → Skills Router (37+ skills)
+                                           ↓
+                    ┌──────────────────────┼──────────────────────┐
+                    ↓                      ↓                      ↓
+              Smart Router           Error Alerter          Skill Registry
+              (NLP → cmds)          (crash alerts)         (command routing)
+                                           ↓
+                                    AI Provider Router
+                    ┌──────────────────────┼──────────────────────┐
+                    ↓                      ↓                      ↓
+              Groq (FREE)           Claude (Tiered)         Grok (xAI)
+              Simple queries        Opus=Brain              Social/X search
+              Greetings            Sonnet=Coder             Real-time trends
+              Whisper (voice)
 
-GitHub Events --> /github-webhook --> WhatsApp Notifications
+Scheduler (node-cron) → Jobs
+                          ├── morning-brief.js      Daily briefings
+                          ├── proactive-alerts.js   Alert system
+                          ├── deadline-check.js     Hourly deadline check
+                          └── nightly-autonomous.js Autonomous agent
+
+GitHub Events --> /github-webhook --> Alert Escalation (Telegram → WhatsApp → Voice)
 ```
 
 ### Project Structure
@@ -202,43 +186,36 @@ GitHub Events --> /github-webhook --> WhatsApp Notifications
 ```
 aws-clawd-bot/
 ├── 02-whatsapp-bot/           # Main application
-│   ├── index.js               # Express server & webhook handler
-│   ├── ai-handler.js          # Claude AI integration
-│   ├── github-handler.js      # Basic GitHub API (axios)
+│   ├── index.js               # Express server & webhook handlers
+│   ├── ai-handler.js          # Multi-AI router, project context
+│   ├── telegram-handler.js    # Telegram Bot API integration
+│   ├── voice-handler.js       # Twilio Voice calling handler
 │   ├── github-webhook.js      # GitHub webhook event handler
-│   ├── memory/
-│   │   ├── memory-manager.js  # SQLite persistence layer
-│   │   └── schema.sql         # Database schema
-│   ├── scheduler/
-│   │   ├── scheduler.js       # Job scheduler (node-cron)
-│   │   └── jobs/              # Built-in job handlers
-│   └── skills/
-│       ├── base-skill.js      # Abstract skill class
-│       ├── skill-registry.js  # Skill management
-│       ├── skill-loader.js    # Dynamic skill loading
-│       ├── github/            # GitHub skill (repos, branches, issues, PRs)
-│       ├── memory/            # Memory skill (facts, conversation)
-│       ├── morning-brief/     # Morning brief skill (daily summaries)
-│       ├── tasks/             # Task management
-│       ├── reminders/         # Reminder system
-│       ├── coder/             # AI code writing (fix, edit, create)
-│       ├── review/            # AI code review
-│       ├── actions/           # GitHub Actions integration
-│       ├── stats/             # Repository statistics
-│       ├── research/          # Web research
-│       ├── vercel/            # Vercel deployment
-│       └── help/              # Help and command listing
-├── 03-github-automation/      # Advanced GitHub operations
-│   └── code-analyzer.js       # Octokit-based code analysis
-├── 05-docker/                 # Docker configuration
-│   └── docker-compose.yml     # Multi-service orchestration
+│   ├── ai-providers/          # AI provider implementations
+│   │   ├── router.js          # Smart query classification
+│   │   ├── groq-handler.js    # Groq LLM + Whisper (FREE)
+│   │   ├── claude-handler.js  # Claude Opus/Sonnet
+│   │   └── grok-handler.js    # Grok xAI (social)
+│   ├── lib/                   # Core libraries
+│   │   ├── messaging-platform.js  # Multi-platform abstraction
+│   │   ├── chat-registry.js       # Chat context registration
+│   │   ├── action-controller.js   # Propose-confirm-execute model
+│   │   ├── alert-escalation.js    # Multi-tier escalation
+│   │   └── audit-logger.js        # Action logging (JSONL)
+│   ├── hooks/
+│   │   └── smart-router.js    # NLP → command conversion
+│   ├── autonomous/            # Nightly autonomous agent
+│   ├── mcp-server/            # MCP server for Claude Desktop
+│   ├── memory/                # SQLite persistence layer
+│   ├── scheduler/             # Job scheduler (node-cron)
+│   └── skills/                # 37+ modular skills
+│       ├── skills.json        # Enabled skills config
+│       └── <skillname>/       # Each skill in its own folder
 ├── config/
-│   ├── .env.example           # Environment template
-│   └── .env.local             # Your configuration (gitignored)
-├── scripts/
-│   ├── deploy-to-aws.ps1      # AWS deployment automation
-│   └── setup.js               # Interactive setup wizard
-└── docs/                      # Additional documentation
+│   ├── project-registry.json  # GitHub projects with capabilities
+│   ├── chat-registry.json     # Persisted chat registrations
+│   └── .env.local             # Environment variables (gitignored)
+└── scripts/                   # Deployment and setup scripts
 ```
 
 ---
@@ -250,10 +227,9 @@ aws-clawd-bot/
 | Variable | Description | Where to Get |
 |----------|-------------|--------------|
 | `ANTHROPIC_API_KEY` | Claude AI API key | [Anthropic Console](https://console.anthropic.com/) |
-| `TWILIO_ACCOUNT_SID` | Twilio account SID | [Twilio Console](https://console.twilio.com/) |
-| `TWILIO_AUTH_TOKEN` | Twilio auth token | [Twilio Console](https://console.twilio.com/) |
-| `TWILIO_WHATSAPP_NUMBER` | Twilio WhatsApp number | Twilio Sandbox: `+14155238886` |
-| `YOUR_WHATSAPP` | Your phone number | Format: `+447123456789` |
+| `GROQ_API_KEY` | Groq API key (FREE) | [Groq Console](https://console.groq.com/) |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token | [@BotFather](https://t.me/BotFather) |
+| `TELEGRAM_AUTHORIZED_USERS` | Authorized Telegram chat IDs | Comma-separated |
 | `GITHUB_TOKEN` | GitHub Personal Access Token | [GitHub Settings](https://github.com/settings/tokens) |
 | `GITHUB_USERNAME` | Your GitHub username | Your profile |
 
@@ -261,37 +237,47 @@ aws-clawd-bot/
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REPOS_TO_MONITOR` | - | Comma-separated list of repo names |
-| `GITHUB_WEBHOOK_SECRET` | - | Secret for webhook signature verification |
-| `PORT` | `3000` | Server port |
-| `NODE_ENV` | `development` | Environment mode |
-| `TIMEZONE` | `Europe/London` | Timezone for scheduler |
-| `MORNING_BRIEF_TIME` | `08:00` | Default morning brief time |
-| `BRAVE_API_KEY` | - | For research/web search capability |
-| `OPENWEATHER_API_KEY` | - | For weather in morning briefs |
-| `WEATHER_CITY` | `London` | City for weather data |
+| `XAI_API_KEY` | - | Grok API for social/X search |
+| `PERPLEXITY_API_KEY` | - | Perplexity for deep research |
+| `TWILIO_ACCOUNT_SID` | - | Twilio for WhatsApp/Voice |
+| `TWILIO_AUTH_TOKEN` | - | Twilio auth token |
+| `TWILIO_WHATSAPP_NUMBER` | - | Twilio WhatsApp number |
+| `TWILIO_PHONE_NUMBER` | - | Twilio voice-enabled number |
+| `YOUR_WHATSAPP` | - | Your WhatsApp number |
+| `YOUR_PHONE_NUMBER` | - | Your phone for voice calls |
+| `AUTO_CALL_ENABLED` | `false` | Enable voice call escalation |
+| `CLAWDBOT_API_KEY` | - | API key for MCP/REST access |
 
 ### Example Configuration
 
 ```bash
 # config/.env.local
 
-# Required
-ANTHROPIC_API_KEY=sk-ant-api...
+# Multi-AI (Groq is FREE)
+GROQ_API_KEY=gsk_...
+ANTHROPIC_API_KEY=sk-ant-...
+XAI_API_KEY=xai-...              # Optional
+PERPLEXITY_API_KEY=pplx-...      # Optional
+
+# Telegram (Primary)
+TELEGRAM_BOT_TOKEN=123456:ABC...
+TELEGRAM_AUTHORIZED_USERS=123456789,987654321
+TELEGRAM_HQ_CHAT_ID=123456789
+
+# WhatsApp (Backup) - Optional
 TWILIO_ACCOUNT_SID=AC...
 TWILIO_AUTH_TOKEN=...
 TWILIO_WHATSAPP_NUMBER=+14155238886
 YOUR_WHATSAPP=+447123456789
+
+# Voice Calling - Optional
+TWILIO_PHONE_NUMBER=+1...
+YOUR_PHONE_NUMBER=+44...
+AUTO_CALL_ENABLED=true
+
+# GitHub
 GITHUB_TOKEN=ghp_...
 GITHUB_USERNAME=yourusername
-
-# Recommended
-REPOS_TO_MONITOR=myproject,another-repo,third-repo
-GITHUB_WEBHOOK_SECRET=your-webhook-secret
-
-# Optional
-TIMEZONE=Europe/London
-MORNING_BRIEF_TIME=08:00
 ```
 
 ---
@@ -300,76 +286,48 @@ MORNING_BRIEF_TIME=08:00
 
 ClawdBot uses a modular skills architecture. Each skill is a self-contained module that handles specific commands.
 
-### Built-in Skills (12 Skills)
+### Built-in Skills (37 Skills)
 
-| Skill | Priority | Description |
-|-------|----------|-------------|
-| `help` | 100 | Command documentation and skill listing |
-| `memory` | 50 | Fact storage and conversation management |
-| `morning-brief` | 40 | Daily briefings and scheduling |
-| `tasks` | 35 | Task management with priorities |
-| `reminders` | 30 | Time-based reminders |
-| `coder` | 20 | **AI code writing - fix issues, edit files, create PRs** |
-| `review` | 18 | **AI code review for PRs and files** |
-| `actions` | 15 | **GitHub Actions - list/trigger workflows** |
-| `stats` | 12 | **Repository statistics and analytics** |
-| `github` | 10 | Repository management (branches, issues, PRs) |
-| `research` | 8 | Web research capability |
-| `vercel` | 5 | Vercel deployment integration |
+| Category | Skills |
+|----------|--------|
+| **Control** | action-control (undo, pause, stop, explain) |
+| **Core** | help, memory, tasks, reminders |
+| **Claude Code Agent** | project-context, remote-exec |
+| **GitHub** | github, coder, review, stats, actions, multi-repo, project-creator |
+| **Accountancy** | deadlines, companies, governance, intercompany, receipts, moltbook |
+| **Media** | image-analysis, voice, voice-call, video, files |
+| **Scheduling** | morning-brief, digest, overnight |
+| **Research** | research, vercel |
+| **Chat/Platform** | chat-management, hq-commands |
+| **Config** | ai-settings, autonomous-config, audit |
+
+**Skill Priority:** Higher number = checked first (help=100, action-control=99, hq-commands=95)
 
 ### Creating a Custom Skill
 
-1. Create a new folder in `02-whatsapp-bot/skills/`:
+1. Create `skills/<skillname>/index.js`:
 
 ```javascript
-// skills/my-skill/index.js
 const BaseSkill = require('../base-skill');
 
 class MySkill extends BaseSkill {
-  name = 'my-skill';
-  description = 'Does something amazing';
-  priority = 20;
+  name = 'myskill';
+  description = 'What it does';
+  priority = 20;  // Higher = matched first
 
   commands = [
-    {
-      pattern: /^do magic$/i,
-      description: 'Perform magic',
-      usage: 'do magic'
-    },
-    {
-      pattern: /^magic (\w+)$/i,
-      description: 'Magic with a parameter',
-      usage: 'magic <thing>'
-    }
+    { pattern: /^mycommand$/i, description: 'Does X', usage: 'mycommand' }
   ];
 
   async execute(command, context) {
-    const { userId, memory } = context;
-
-    if (/^do magic$/i.test(command)) {
-      return this.success('Magic performed successfully!');
-    }
-
-    const match = command.match(/^magic (\w+)$/i);
-    if (match) {
-      return this.success(`You cast magic on: ${match[1]}`);
-    }
-
-    return this.error('Unknown magic command');
+    return this.success('Response text');
   }
 }
-
 module.exports = MySkill;
 ```
 
-2. Skills are auto-loaded from the `skills/` directory on startup.
-
-### Skill Lifecycle
-
-- **`initialize()`** - Called when skill is loaded (setup, connect services)
-- **`canHandle(command)`** - Check if skill can handle a command
-- **`execute(command, context)`** - Process the command and return response
-- **`shutdown()`** - Called when skill is unloaded (cleanup)
+2. Add to `skills/skills.json` enabled array
+3. Deploy and restart
 
 ### Skill Context
 
@@ -377,11 +335,12 @@ Skills receive a context object with:
 
 ```javascript
 {
-  userId: '+447123456789',      // User's phone number
-  fromNumber: 'whatsapp:+44...', // Full Twilio format
-  memory: MemoryManager,        // Persistent storage
-  ai: AIHandler,                // Claude AI handler
-  config: { ... }               // Configuration
+  userId: '123456789',           // Telegram chat ID or phone number
+  platform: 'telegram',          // 'telegram' or 'whatsapp'
+  memory: MemoryManager,         // Persistent storage
+  ai: AIHandler,                 // Multi-AI handler
+  mediaUrl: 'https://...',       // Optional: media attachment URL
+  config: { ... }                // Configuration
 }
 ```
 
@@ -389,62 +348,68 @@ Skills receive a context object with:
 
 ## Deployment
 
-### Local Development with ngrok
+### Local Development
 
-1. Start the bot:
-   ```bash
-   cd 02-whatsapp-bot && npm run dev
-   ```
-
-2. Expose with ngrok:
-   ```bash
-   ngrok http 3000
-   ```
-
-3. Configure Twilio webhook:
-   - Go to [Twilio Console](https://console.twilio.com/us1/develop/sms/try-it-out/whatsapp-learn)
-   - Set webhook URL: `https://your-ngrok-url.ngrok.io/webhook`
+```bash
+cd 02-whatsapp-bot && npm install
+npm run dev                    # Development with nodemon auto-reload
+npm start                      # Production mode
+curl localhost:3000/health     # Health check
+```
 
 ### AWS EC2 Deployment
 
+**Quick deploy (single file):**
 ```bash
-# Run the deployment script (PowerShell)
-cd scripts
-.\deploy-to-aws.ps1
+scp -i ~/.ssh/clawd-bot-key.pem 02-whatsapp-bot/index.js ubuntu@16.171.150.151:/opt/clawd-bot/02-whatsapp-bot/
+ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 "pm2 restart clawd-bot"
 ```
 
-The script handles:
-- EC2 instance creation (t2.micro, Free Tier eligible)
-- Security group configuration (ports 22, 80, 443, 3000)
-- SSH key generation
-- Docker installation and container deployment
-
-**Default Configuration:**
-- Region: `eu-west-2` (London)
-- Instance: `t2.micro`
-- SSH key: `~/.ssh/clawd-bot-key.pem`
-- App path: `/opt/clawd-bot/`
-
-### Docker Deployment
-
+**Full deploy:**
 ```bash
-cd 05-docker
-docker-compose up --build -d
+tar -czvf /tmp/clawd-bot.tar.gz --exclude='node_modules' --exclude='.git' .
+scp -i ~/.ssh/clawd-bot-key.pem /tmp/clawd-bot.tar.gz ubuntu@16.171.150.151:/tmp/
+ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 \
+  "cd /opt/clawd-bot && sudo tar -xzf /tmp/clawd-bot.tar.gz && pm2 restart clawd-bot"
 ```
 
-The Docker setup includes:
-- `clawd-bot` container (Node.js Express server, port 3000)
-- Automatic restarts and health checks
+**View logs:**
+```bash
+ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 "pm2 logs clawd-bot --lines 50"
+```
+
+**Live Server:** `16.171.150.151:3000` (eu-north-1)
 
 ---
 
 ## API Endpoints
 
+### Platform Webhooks
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/webhook` | POST | Twilio WhatsApp webhook (incoming messages) |
+| `/telegram` | POST | Telegram bot webhook (incoming messages) |
 | `/github-webhook` | POST | GitHub webhook (events: push, PR, issues) |
 | `/health` | GET | Health check and status information |
+
+### Voice Calling (Twilio Voice)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/voice/outbound` | POST | TwiML for outbound calls |
+| `/voice/response` | POST | Speech recognition handler |
+| `/voice/status` | POST | Call status callbacks |
+
+### REST API (for MCP Server)
+All API endpoints require `X-API-Key` header with `CLAWDBOT_API_KEY` value.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/status` | GET | Bot status, uptime, features |
+| `/api/message` | POST | Send message & get response |
+| `/api/projects` | GET | List all GitHub repos |
+| `/api/project/:repo/status` | GET | Get TODO.md tasks for a repo |
+| `/api/project/:repo/deploy` | POST | Trigger deployment |
+| `/api/skills` | GET | List all available skills |
 
 ### Health Check Response
 
@@ -550,10 +515,12 @@ MIT License - See [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-- [Claude AI](https://anthropic.com) - AI language model
-- [Twilio](https://twilio.com) - WhatsApp messaging API
+- [Claude AI](https://anthropic.com) - AI language model (Opus/Sonnet)
+- [Groq](https://groq.com) - FREE LLaMA + Whisper inference
+- [Telegram](https://telegram.org) - Primary messaging platform
+- [Twilio](https://twilio.com) - WhatsApp + Voice calling
 - [Octokit](https://github.com/octokit) - GitHub API client
 
 ---
 
-**Built by Giquina | Powered by Claude AI + AWS**
+**Built by Giquina | Powered by Claude AI + Groq + AWS**
