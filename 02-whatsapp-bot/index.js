@@ -267,7 +267,7 @@ app.get('/api/project/:repo/status', apiAuth, async (req, res) => {
         const todoParser = require('./lib/todo-parser');
 
         const repo = req.params.repo;
-        const todoContent = await projectManager.getFile(repo, 'TODO.md');
+        const todoContent = await projectManager.fetchFile(repo, 'TODO.md');
 
         if (!todoContent) {
             return res.json({
