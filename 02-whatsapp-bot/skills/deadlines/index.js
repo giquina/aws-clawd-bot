@@ -741,6 +741,162 @@ class DeadlinesSkill extends BaseSkill {
       deadlineTypes: Object.keys(this.deadlineTypes)
     };
   }
+
+  // ============ Alert Escalation Integration ============
+
+  /**
+   * Check all deadlines and trigger alerts for urgent ones
+   * Called by scheduler jobs (e.g., morning brief, deadline checker)
+   *
+   * @returns {Promise<Object>} Alert summary { triggered: [], stats: {} }
+   */
+  async checkAndAlertUrgentDeadlines() {
+    const now = new Date();
+    const allDeadlines = [];
+    const triggeredAlerts = [];
+
+    // Get alert escalation module
+    let alertEscalation = null;
+    try {
+      const { alertEscalation: ae } = require('../../lib/alert-escalation');
+      alertEscalation = ae;
+    } catch (e) {
+      this.log('warn', 'Alert escalation not available for deadline alerts');
+      return { triggered: [], stats: {} };
+    }
+
+    // Calculate all deadlines
+    for (const [code, company] of Object.entries(this.companies)) {
+      const companyDeadlines = this.calculateCompanyDeadlines(company, now, true);
+      allDeadlines.push(...companyDeadlines);
+    }
+
+    // Add custom deadlines
+    const customDeadlines = this.getCustomDeadlines();
+    allDeadlines.push(...customDeadlines);
+
+    // Check each deadline for urgency
+    for (const deadline of allDeadlines) {
+      const hoursRemaining = (deadline.dueDate - now) / (1000 * 60 * 60);
+      const daysRemaining = hoursRemaining / 24;
+
+      // Build detail message
+      const detailMsg = `${deadline.companyCode}: ${deadline.type}\n` +
+                        `Due: ${this.formatDateShort(deadline.dueDate)}\n` +
+                        `${deadline.description || ''}`;
+
+      // Overdue - EMERGENCY
+      if (hoursRemaining < 0) {
+        const alertId = await alertEscalation.createAlert('DEADLINE_MISSED', detailMsg, {
+          metadata: {
+            company: deadline.companyCode,
+            type: deadline.typeCode,
+            dueDate: deadline.dueDate.toISOString()
+          }
+        });
+        if (alertId) {
+          triggeredAlerts.push({
+            alertId,
+            type: 'DEADLINE_MISSED',
+            deadline: deadline.type,
+            company: deadline.companyCode
+          });
+        }
+      }
+      // Within 1 hour - EMERGENCY
+      else if (hoursRemaining <= 1) {
+        const alertId = await alertEscalation.createAlert('DEADLINE_1H', detailMsg, {
+          metadata: {
+            company: deadline.companyCode,
+            type: deadline.typeCode,
+            dueDate: deadline.dueDate.toISOString()
+          }
+        });
+        if (alertId) {
+          triggeredAlerts.push({
+            alertId,
+            type: 'DEADLINE_1H',
+            deadline: deadline.type,
+            company: deadline.companyCode
+          });
+        }
+      }
+      // Within 24 hours - CRITICAL
+      else if (hoursRemaining <= 24) {
+        const alertId = await alertEscalation.createAlert('DEADLINE_24H', detailMsg, {
+          metadata: {
+            company: deadline.companyCode,
+            type: deadline.typeCode,
+            dueDate: deadline.dueDate.toISOString()
+          }
+        });
+        if (alertId) {
+          triggeredAlerts.push({
+            alertId,
+            type: 'DEADLINE_24H',
+            deadline: deadline.type,
+            company: deadline.companyCode
+          });
+        }
+      }
+      // Within 7 days - INFO (no escalation)
+      else if (daysRemaining <= 7) {
+        const alertId = await alertEscalation.createAlert('DEADLINE_7D', detailMsg, {
+          metadata: {
+            company: deadline.companyCode,
+            type: deadline.typeCode,
+            dueDate: deadline.dueDate.toISOString()
+          }
+        });
+        if (alertId) {
+          triggeredAlerts.push({
+            alertId,
+            type: 'DEADLINE_7D',
+            deadline: deadline.type,
+            company: deadline.companyCode
+          });
+        }
+      }
+    }
+
+    const stats = {
+      totalDeadlines: allDeadlines.length,
+      alertsTriggered: triggeredAlerts.length,
+      byType: triggeredAlerts.reduce((acc, a) => {
+        acc[a.type] = (acc[a.type] || 0) + 1;
+        return acc;
+      }, {})
+    };
+
+    this.log('info', `Deadline alert check: ${triggeredAlerts.length} alerts triggered`, stats);
+
+    return { triggered: triggeredAlerts, stats };
+  }
+
+  /**
+   * Get deadlines that need immediate attention (within 24 hours)
+   * @returns {Object[]} Array of urgent deadlines
+   */
+  getUrgentDeadlines() {
+    const now = new Date();
+    const cutoff24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const allDeadlines = [];
+
+    // Calculate all deadlines
+    for (const [code, company] of Object.entries(this.companies)) {
+      const companyDeadlines = this.calculateCompanyDeadlines(company, now, true);
+      allDeadlines.push(...companyDeadlines);
+    }
+
+    // Add custom deadlines
+    const customDeadlines = this.getCustomDeadlines();
+    allDeadlines.push(...customDeadlines);
+
+    // Filter to urgent only (overdue or within 24 hours)
+    return allDeadlines
+      .filter(d => d.dueDate <= cutoff24h)
+      .sort((a, b) => a.dueDate - b.dueDate);
+  }
 }
 
 module.exports = DeadlinesSkill;

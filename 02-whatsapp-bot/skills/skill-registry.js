@@ -303,6 +303,7 @@ class SkillRegistry extends EventEmitter {
 
     // Group skills by category based on name patterns
     const categories = {
+      'Action Control': ['action-control'],
       'HQ & Cross-Repo': ['hq-commands', 'multi-repo', 'project-context', 'chat-management'],
       'GitHub & Code': ['github', 'coder', 'review', 'actions', 'stats', 'project-creator'],
       'Accountancy': ['deadlines', 'companies', 'governance', 'intercompany', 'receipts'],

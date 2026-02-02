@@ -1,9 +1,24 @@
 // GitHub Webhook Handler
 // Formats GitHub events into mobile-friendly WhatsApp notifications
 // Now routes alerts to repo-specific chats via ChatRegistry
+// Integrates with AlertEscalation for critical event auto-escalation
 
 const crypto = require('crypto');
 const chatRegistry = require('./lib/chat-registry');
+
+// Import alert escalation (lazy load to avoid circular deps)
+let alertEscalation = null;
+function getAlertEscalation() {
+    if (!alertEscalation) {
+        try {
+            const { alertEscalation: ae } = require('./lib/alert-escalation');
+            alertEscalation = ae;
+        } catch (e) {
+            console.log('[GitHub Webhook] Alert escalation not available:', e.message);
+        }
+    }
+    return alertEscalation;
+}
 
 class GitHubWebhookHandler {
     constructor() {
@@ -294,6 +309,71 @@ class GitHubWebhookHandler {
     }
 
     /**
+     * Trigger alert escalation for critical GitHub events
+     * This enables automatic Telegram -> WhatsApp -> Voice Call escalation
+     * @param {string} eventType - GitHub event type
+     * @param {object} payload - GitHub webhook payload
+     * @returns {Promise<string|null>} - Alert ID if escalation created, null otherwise
+     */
+    async escalateIfCritical(eventType, payload) {
+        const escalation = getAlertEscalation();
+        if (!escalation) {
+            return null;
+        }
+
+        const repo = payload.repository?.name || 'unknown';
+
+        // CI failure on main/master branch
+        if (eventType === 'workflow_run' && payload.workflow_run?.conclusion === 'failure') {
+            const branch = payload.workflow_run.head_branch;
+            const workflowName = payload.workflow_run?.name || 'CI';
+
+            if (branch === 'main' || branch === 'master') {
+                // Critical: CI failed on main branch
+                return await escalation.createAlert('CI_FAILURE_MAIN',
+                    `${repo}: ${workflowName} failed on ${branch}`,
+                    {
+                        metadata: {
+                            repo,
+                            branch,
+                            workflow: workflowName,
+                            runUrl: payload.workflow_run?.html_url
+                        }
+                    }
+                );
+            } else {
+                // Warning: CI failed on other branch (no voice escalation)
+                return await escalation.createAlert('CI_FAILURE_OTHER',
+                    `${repo}: ${workflowName} failed on ${branch}`,
+                    {
+                        metadata: {
+                            repo,
+                            branch,
+                            workflow: workflowName,
+                            runUrl: payload.workflow_run?.html_url
+                        }
+                    }
+                );
+            }
+        }
+
+        // Security advisory alert
+        if (eventType === 'security_advisory') {
+            return await escalation.createAlert('SECURITY_ALERT',
+                `${repo}: Security vulnerability detected`,
+                {
+                    metadata: {
+                        repo,
+                        severity: payload.security_advisory?.severity
+                    }
+                }
+            );
+        }
+
+        return null;
+    }
+
+    /**
      * Determine which chats should receive this notification based on event type
      * @param {string} eventType - GitHub event type
      * @param {object} payload - GitHub webhook payload
@@ -345,16 +425,37 @@ class GitHubWebhookHandler {
     }
 
     /**
+     * Get the default HQ chat (fallback when no repo-specific chat is found)
+     * Prefers Telegram HQ, falls back to WhatsApp
+     * @returns {Object|null} - { chatId, platform } or null
+     */
+    getDefaultHQChat() {
+        // Use chat-registry's getDefaultChat which prefers Telegram
+        const defaultChat = chatRegistry.getDefaultChat();
+        if (defaultChat) {
+            return defaultChat;
+        }
+
+        // Legacy fallback: try TELEGRAM_HQ_CHAT_ID first
+        const telegramHQ = process.env.TELEGRAM_HQ_CHAT_ID;
+        if (telegramHQ) {
+            return { chatId: telegramHQ, platform: 'telegram' };
+        }
+
+        // Last resort: WhatsApp
+        return process.env.YOUR_WHATSAPP
+            ? { chatId: `whatsapp:${process.env.YOUR_WHATSAPP}`, platform: 'whatsapp' }
+            : null;
+    }
+
+    /**
      * Get the default HQ chat ID (fallback when no repo-specific chat is found)
+     * @deprecated Use getDefaultHQChat() instead for platform awareness
      * @returns {string|null} - HQ chat ID or null
      */
     getDefaultHQChatId() {
-        const hqChats = chatRegistry.getHQChats();
-        if (hqChats.length > 0) {
-            return hqChats[0].chatId;
-        }
-        // Fall back to environment variable
-        return process.env.YOUR_WHATSAPP ? `whatsapp:${process.env.YOUR_WHATSAPP}` : null;
+        const defaultChat = this.getDefaultHQChat();
+        return defaultChat ? defaultChat.chatId : null;
     }
 }
 

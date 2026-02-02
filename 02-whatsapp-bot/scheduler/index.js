@@ -7,6 +7,7 @@ const proactiveAlerts = require('./jobs/proactive-alerts');
 const nightlyAutonomous = require('./jobs/nightly-autonomous');
 const endOfDay = require('./jobs/end-of-day');
 const heartbeat = require('./jobs/heartbeat');
+const deadlineCheck = require('./jobs/deadline-check');
 
 module.exports = {
     // Main scheduler class and factories
@@ -20,7 +21,8 @@ module.exports = {
         proactiveAlerts,
         nightlyAutonomous,
         endOfDay,
-        heartbeat
+        heartbeat,
+        deadlineCheck
     },
 
     // Common cron expressions for convenience

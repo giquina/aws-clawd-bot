@@ -947,11 +947,172 @@ async function cleanupOldReports(keepDays = 30) {
   }
 }
 
+/**
+ * Format report for Telegram message with rich formatting
+ * Takes advantage of Telegram's better markdown support (4096 char limit)
+ *
+ * @param {Object} report - Structured report from generateReport()
+ * @returns {string} Telegram-formatted message
+ */
+function formatForTelegram(report) {
+  const lines = [];
+  const stats = report.stats;
+
+  // Header with date
+  const dateFormatted = _formatReportDate(report.date);
+  lines.push(`*MORNING BRIEF - ${dateFormatted}*`);
+  lines.push('');
+
+  // PROJECT STATUS section (Telegram can show more detail)
+  if (report.todoSummary && report.todoSummary.length > 0) {
+    lines.push('*PROJECT STATUS:*');
+    report.todoSummary.forEach(project => {
+      const repoName = project.repo.toUpperCase();
+      if (project.totalIncomplete === 0) {
+        lines.push(`  ${repoName}: All done!`);
+      } else if (project.inProgress > 0) {
+        lines.push(`  ${repoName}: ${project.totalIncomplete} tasks (${project.inProgress} in progress)`);
+      } else {
+        lines.push(`  ${repoName}: ${project.notStarted} tasks left`);
+      }
+    });
+    lines.push('');
+  }
+
+  // ATTENTION NEEDED section - CI failures, PRs, deadlines
+  const attentionItems = [];
+
+  // Add CI/CD failures
+  if (report.cicdStatus && report.cicdStatus.length > 0) {
+    report.cicdStatus.slice(0, 3).forEach(failure => {
+      const time = _formatTime(failure.failedAt);
+      attentionItems.push(`Build failed on ${failure.repo} at ${time}`);
+    });
+  }
+
+  // Add PRs awaiting review
+  if (report.prsAwaitingReview && report.prsAwaitingReview.length > 0) {
+    report.prsAwaitingReview.slice(0, 3).forEach(pr => {
+      attentionItems.push(`PR #${pr.number} on ${pr.repo} needs review (${pr.daysSinceCreated}d)`);
+    });
+  }
+
+  // Add urgent deadlines
+  if (report.urgentDeadlines && report.urgentDeadlines.length > 0) {
+    report.urgentDeadlines.slice(0, 3).forEach(deadline => {
+      if (deadline.daysRemaining <= 3) {
+        attentionItems.push(`${deadline.company} ${deadline.type} due in ${deadline.daysRemaining} day(s)`);
+      }
+    });
+  }
+
+  if (attentionItems.length > 0) {
+    lines.push('*ATTENTION NEEDED:*');
+    attentionItems.forEach(item => {
+      lines.push(`  ${item}`);
+    });
+    lines.push('');
+  }
+
+  // OVERNIGHT section - what was accomplished
+  if (stats.totalTasksCompleted > 0 || stats.prsCreated > 0 || stats.commitsMade > 0) {
+    lines.push('*OVERNIGHT:*');
+    if (stats.totalTasksCompleted > 0) {
+      lines.push(`  Completed: ${stats.totalTasksCompleted} task(s)`);
+    }
+    if (stats.commitsMade > 0) {
+      lines.push(`  Commits: ${stats.commitsMade}`);
+    }
+    if (stats.prsCreated > 0) {
+      lines.push(`  PRs created: ${stats.prsCreated}`);
+    }
+
+    // Show top 3 completed tasks (more room in Telegram)
+    if (report.tasksCompleted.length > 0) {
+      report.tasksCompleted.slice(0, 3).forEach(task => {
+        const icon = _getTaskIcon(task.type);
+        lines.push(`    ${icon} ${task.description}`);
+      });
+    }
+    lines.push('');
+  }
+
+  // Queued tasks needing approval (top 3 for Telegram)
+  if (report.tasksQueued.length > 0) {
+    lines.push('*NEEDS APPROVAL:*');
+    const displayQueued = report.tasksQueued.slice(0, 3);
+    displayQueued.forEach(task => {
+      lines.push(`  ${task.description}`);
+    });
+    if (report.tasksQueued.length > 3) {
+      lines.push(`  _+${report.tasksQueued.length - 3} more pending..._`);
+    }
+    lines.push('');
+  }
+
+  // Key insights (if any)
+  if (report.insights.length > 0) {
+    lines.push('*DISCOVERED:*');
+    report.insights.slice(0, 3).forEach(insight => {
+      lines.push(`  ${insight}`);
+    });
+    lines.push('');
+  }
+
+  // Blockers (if any)
+  if (report.blockers.length > 0) {
+    lines.push('*BLOCKERS:*');
+    report.blockers.slice(0, 3).forEach(blocker => {
+      lines.push(`  ${blocker}`);
+    });
+    lines.push('');
+  }
+
+  // RECOMMENDATION section (enhanced with smart prioritization)
+  const recommendation = report.priorityRecommendation || (report.recommendations && report.recommendations[0]);
+  if (recommendation) {
+    lines.push('*RECOMMENDATION:*');
+    lines.push(recommendation);
+    lines.push('');
+  }
+
+  // Footer
+  lines.push(_getFooter(report));
+
+  // Join and truncate if necessary (Telegram allows 4096)
+  let message = lines.join('\n');
+
+  // Ensure under 4000 chars (leave buffer)
+  if (message.length > 4000) {
+    message = _truncateMessage(message, 4000);
+  }
+
+  return message;
+}
+
+/**
+ * Format report for the default platform (Telegram or WhatsApp)
+ * Automatically selects the appropriate formatter based on DEFAULT_PLATFORM
+ *
+ * @param {Object} report - Structured report from generateReport()
+ * @returns {string} Platform-formatted message
+ */
+function formatForDefaultPlatform(report) {
+  const defaultPlatform = process.env.DEFAULT_PLATFORM || 'telegram';
+
+  if (defaultPlatform === 'telegram') {
+    return formatForTelegram(report);
+  }
+  return formatForWhatsApp(report);
+}
+
 // Export all functions
 module.exports = {
   // Core report functions
   generateReport,
   formatForWhatsApp,
+  formatForTelegram,
+  formatForDefaultPlatform,
   saveReport,
   getLastReport,
   getReportByDate,

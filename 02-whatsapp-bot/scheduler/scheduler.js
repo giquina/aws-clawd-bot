@@ -30,6 +30,7 @@ class Scheduler {
         this.registerHandler('health-check', this.handleHealthCheck.bind(this));
         this.registerHandler('proactive-alerts', this.handleProactiveAlerts.bind(this));
         this.registerHandler('nightly-autonomous', this.handleNightlyAutonomous.bind(this));
+        this.registerHandler('deadline-check', this.handleDeadlineCheck.bind(this));
         this.registerHandler('custom', this.handleCustomJob.bind(this));
     }
 
@@ -320,6 +321,17 @@ class Scheduler {
     async handleNightlyAutonomous(params = {}) {
         const nightlyAutonomous = require('./jobs/nightly-autonomous');
         return nightlyAutonomous.generate(this.db, params);
+    }
+
+    /**
+     * Deadline check handler - checks for urgent deadlines and triggers alerts
+     * Integrates with AlertEscalation for automatic voice call escalation
+     * @param {Object} params - Job parameters
+     * @returns {Promise<string|null>} null (alerts go through escalation system)
+     */
+    async handleDeadlineCheck(params = {}) {
+        const deadlineCheck = require('./jobs/deadline-check');
+        return deadlineCheck.generate(this.db, params);
     }
 
     /**

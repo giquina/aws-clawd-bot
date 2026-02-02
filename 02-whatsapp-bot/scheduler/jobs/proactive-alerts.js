@@ -1,9 +1,24 @@
 // scheduler/jobs/proactive-alerts.js
 // Proactive Alerts Job - Sends daily alerts for deadlines, PRs, and CI status
 // Primary: Telegram, Backup: WhatsApp (critical only)
+// Now integrates with AlertEscalation for automatic voice call escalation
 
 const twilio = require('twilio');
 const { Octokit } = require('@octokit/rest');
+
+// Lazy load alert escalation to avoid circular dependencies
+let alertEscalation = null;
+function getAlertEscalation() {
+    if (!alertEscalation) {
+        try {
+            const { alertEscalation: ae } = require('../../lib/alert-escalation');
+            alertEscalation = ae;
+        } catch (e) {
+            console.log('[ProactiveAlerts] Alert escalation not available:', e.message);
+        }
+    }
+    return alertEscalation;
+}
 
 /**
  * ProactiveAlerts class for sending daily notification digests
@@ -82,10 +97,12 @@ class ProactiveAlerts {
 
     /**
      * Check company deadlines (CS01 filings)
+     * Now also triggers alert escalation for urgent deadlines
      * @returns {Promise<string[]>} Array of deadline alerts
      */
     async checkDeadlines() {
         const alerts = [];
+        const escalation = getAlertEscalation();
 
         // Company incorporation dates for CS01 deadline calculation
         const companies = {
@@ -116,7 +133,39 @@ class ProactiveAlerts {
             const daysUntilCS01 = Math.ceil(
                 (thisYearCS01 - now) / (24 * 60 * 60 * 1000)
             );
+            const hoursUntilCS01 = (thisYearCS01 - now) / (1000 * 60 * 60);
 
+            // Trigger alert escalation for urgent deadlines
+            if (escalation) {
+                const detailMsg = `${code}: CS01 (Confirmation Statement)\nDue: ${thisYearCS01.toDateString()}`;
+
+                // Overdue - EMERGENCY (immediate voice call)
+                if (daysUntilCS01 < 0) {
+                    await escalation.createAlert('DEADLINE_MISSED', detailMsg, {
+                        metadata: { company: code, type: 'CS01', dueDate: thisYearCS01.toISOString() }
+                    });
+                }
+                // Within 1 hour - EMERGENCY
+                else if (hoursUntilCS01 <= 1 && hoursUntilCS01 > 0) {
+                    await escalation.createAlert('DEADLINE_1H', detailMsg, {
+                        metadata: { company: code, type: 'CS01', dueDate: thisYearCS01.toISOString() }
+                    });
+                }
+                // Within 24 hours - CRITICAL (escalates to voice if unacknowledged)
+                else if (hoursUntilCS01 <= 24 && hoursUntilCS01 > 1) {
+                    await escalation.createAlert('DEADLINE_24H', detailMsg, {
+                        metadata: { company: code, type: 'CS01', dueDate: thisYearCS01.toISOString() }
+                    });
+                }
+                // Within 7 days - INFO (Telegram only, no escalation)
+                else if (daysUntilCS01 <= 7) {
+                    await escalation.createAlert('DEADLINE_7D', detailMsg, {
+                        metadata: { company: code, type: 'CS01', dueDate: thisYearCS01.toISOString() }
+                    });
+                }
+            }
+
+            // Add to daily digest
             if (daysUntilCS01 <= 7 && daysUntilCS01 > 0) {
                 alerts.push(`[!] ${code}: CS01 due in ${daysUntilCS01} days`);
             } else if (daysUntilCS01 <= 0) {
@@ -169,12 +218,14 @@ class ProactiveAlerts {
 
     /**
      * Check for failed CI/CD workflow runs
+     * Now also triggers alert escalation for failures on main branch
      * @returns {Promise<string[]>} Array of CI failure alerts
      */
     async checkCI() {
         if (!this.octokit) return [];
 
         const alerts = [];
+        const escalation = getAlertEscalation();
         const repos = (process.env.REPOS_TO_MONITOR || '').split(',').filter(Boolean);
         const username = process.env.GITHUB_USERNAME;
 
@@ -190,6 +241,35 @@ class ProactiveAlerts {
                 for (const run of runs.workflow_runs || []) {
                     if (run.conclusion === 'failure') {
                         alerts.push(`[CI] Failed: ${repo} - ${run.name}`);
+
+                        // Trigger alert escalation for CI failures
+                        if (escalation) {
+                            const branch = run.head_branch || 'unknown';
+                            const detailMsg = `${repo}: ${run.name} failed on ${branch}`;
+
+                            if (branch === 'main' || branch === 'master') {
+                                // CRITICAL - main branch failure (escalates to voice)
+                                await escalation.createAlert('CI_FAILURE_MAIN', detailMsg, {
+                                    metadata: {
+                                        repo,
+                                        branch,
+                                        workflow: run.name,
+                                        runUrl: run.html_url
+                                    }
+                                });
+                            } else {
+                                // WARNING - feature branch failure (no voice)
+                                await escalation.createAlert('CI_FAILURE_OTHER', detailMsg, {
+                                    metadata: {
+                                        repo,
+                                        branch,
+                                        workflow: run.name,
+                                        runUrl: run.html_url
+                                    }
+                                });
+                            }
+                        }
+
                         break; // Only one alert per repo
                     }
                 }

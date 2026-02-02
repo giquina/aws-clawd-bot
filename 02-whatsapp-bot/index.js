@@ -146,6 +146,16 @@ try {
     console.log('⚠️  Voice Handler not available:', err.message);
 }
 
+// Initialize Alert Escalation system
+let alertEscalation = null;
+try {
+    const { alertEscalation: ae } = require('./lib/alert-escalation');
+    alertEscalation = ae;
+    console.log('✅ Alert Escalation loaded');
+} catch (err) {
+    console.log('⚠️  Alert Escalation not available:', err.message);
+}
+
 // Send message function (used by scheduler for proactive messages)
 // WhatsApp-only function for backward compatibility
 async function sendWhatsAppMessage(message, toNumber = null) {
@@ -181,6 +191,15 @@ async function sendTelegramMessage(message, chatId = null) {
         console.error('Error sending Telegram message:', error.message);
         return false;
     }
+}
+
+// Initialize Alert Escalation with message senders
+if (alertEscalation) {
+    alertEscalation.initialize({
+        telegram: sendTelegramMessage,
+        whatsapp: sendWhatsAppMessage
+    });
+    console.log('✅ Alert Escalation senders configured');
 }
 
 /**
@@ -627,6 +646,17 @@ app.post('/github-webhook', async (req, res) => {
         // Format the event into a message
         const message = githubWebhook.formatEvent(eventType, req.body);
 
+        // Trigger alert escalation for critical events (CI failures, security alerts)
+        // This enables automatic Telegram -> WhatsApp -> Voice Call escalation
+        try {
+            const alertId = await githubWebhook.escalateIfCritical(eventType, req.body);
+            if (alertId) {
+                console.log(`[GitHub Webhook] Alert escalation triggered: ${alertId}`);
+            }
+        } catch (escalationErr) {
+            console.error('[GitHub Webhook] Alert escalation error:', escalationErr.message);
+        }
+
         let notifiedCount = 0;
 
         if (message) {
@@ -652,12 +682,26 @@ app.post('/github-webhook', async (req, res) => {
             }
 
             // Fallback to HQ/default chat if no specific targets were notified
+            // Uses Telegram as primary, WhatsApp as backup
             if (notifiedCount === 0) {
-                const defaultChatId = githubWebhook.getDefaultHQChatId();
-                if (defaultChatId) {
-                    await sendWhatsAppMessage(message, defaultChatId.startsWith('whatsapp:') ? defaultChatId : null);
-                    notifiedCount = 1;
-                    console.log(`[GitHub Webhook] Sent to HQ (fallback): "${message.substring(0, 40)}..."`);
+                const defaultChat = githubWebhook.getDefaultHQChat();
+                if (defaultChat) {
+                    try {
+                        await MessagingPlatform.sendToRecipient(message, defaultChat.platform, defaultChat.chatId);
+                        notifiedCount = 1;
+                        console.log(`[GitHub Webhook] Sent to HQ (${defaultChat.platform} fallback): "${message.substring(0, 40)}..."`);
+
+                        // For critical events, also send to WhatsApp as backup
+                        if (isCritical && defaultChat.platform === 'telegram') {
+                            const whatsappNumber = process.env.YOUR_WHATSAPP;
+                            if (whatsappNumber) {
+                                await sendWhatsAppMessage(message);
+                                console.log(`[GitHub Webhook] Critical alert also sent to WhatsApp backup`);
+                            }
+                        }
+                    } catch (sendErr) {
+                        console.error(`[GitHub Webhook] Failed to send to default HQ:`, sendErr.message);
+                    }
                 }
             }
 
@@ -856,21 +900,51 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
             if (confirmResult === 'yes') {
                 // User confirmed - execute the pending action
                 const pending = confirmationManager.confirm(userId);
+
+                // Handle voice_action confirmations through VoiceFlow
+                if (pending && pending.action === 'voice_action' && pending.params?.actionId) {
+                    try {
+                        const { voiceFlow } = require('./lib/voice-flow');
+                        const execResult = await voiceFlow.executeAction(pending.params.actionId);
+
+                        const responseText = execResult.success
+                            ? `*Done!*\n\n${execResult.message}${execResult.undoAvailable ? '\n\nSay "undo" to reverse.' : ''}`
+                            : `*Failed:* ${execResult.message}`;
+
+                        await MessagingPlatform.sendToRecipient(responseText, platform, fromNumber);
+                        return;
+                    } catch (err) {
+                        console.error('[VoiceFlow] Confirmation execution failed:', err.message);
+                        await MessagingPlatform.sendToRecipient(`*Error:* ${err.message}`, platform, fromNumber);
+                        return;
+                    }
+                }
+
+                // Handle regular action executor confirmations
                 if (pending && actionExecutor) {
                     console.log(`[AutoExec] Executing confirmed action: ${pending.action}`);
                     const execResult = await actionExecutor.execute(pending.action, pending.params, pending.context);
 
                     const responseText = execResult.success
-                        ? `✅ *Done!*\n\n${execResult.message}`
-                        : `❌ *Failed:* ${execResult.error || execResult.message}`;
+                        ? `*Done!*\n\n${execResult.message}`
+                        : `*Failed:* ${execResult.error || execResult.message}`;
 
                     await MessagingPlatform.sendToRecipient(responseText, platform, fromNumber);
                     return;
                 }
             } else if (confirmResult === 'no') {
-                // User cancelled
+                // User cancelled - also cancel in action controller if voice action
+                const pending = confirmationManager.getPending(userId);
+                if (pending && pending.action === 'voice_action' && pending.params?.actionId) {
+                    try {
+                        const { voiceFlow } = require('./lib/voice-flow');
+                        if (voiceFlow.actionController) {
+                            voiceFlow.actionController.cancel(pending.params.actionId);
+                        }
+                    } catch (e) { /* ignore */ }
+                }
                 confirmationManager.cancel(userId);
-                await MessagingPlatform.sendToRecipient('❌ *Cancelled.* Let me know if you need anything else.', platform, fromNumber);
+                await MessagingPlatform.sendToRecipient('*Cancelled.* Let me know if you need anything else.', platform, fromNumber);
                 return;
             }
             // If not a clear yes/no, continue processing normally
@@ -896,6 +970,72 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
         let handled = false;
 
         const { numMedia, mediaUrl, mediaContentType } = mediaContext;
+
+        // VOICE FLOW: Process voice notes through the full pipeline
+        // Voice notes get: Transcription -> Intent -> Action proposal -> Execute/Confirm
+        if (numMedia > 0 && mediaContentType && (
+            mediaContentType.includes('audio') ||
+            mediaContentType.includes('ogg') ||
+            mediaContentType.includes('voice')
+        )) {
+            try {
+                const { voiceFlow } = require('./lib/voice-flow');
+                console.log(`[VoiceFlow] Processing voice note from ${userId}`);
+
+                const result = await voiceFlow.processVoiceNote(mediaUrl, userId, {
+                    platform,
+                    activeProject: autoRepo,
+                    autoCompany,
+                    fromNumber
+                });
+
+                // Handle different stages
+                switch (result.stage) {
+                    case 'auto_execute':
+                        // High confidence - execute and report
+                        if (result.actionId && voiceFlow.actionController) {
+                            const execResult = await voiceFlow.executeAction(result.actionId);
+                            responseText = result.message + '\n\n' + (execResult.undoAvailable
+                                ? 'Done! Say "undo" to reverse.'
+                                : 'Done!');
+                        } else {
+                            responseText = result.message;
+                        }
+                        handled = true;
+                        break;
+
+                    case 'confirm':
+                        // Needs confirmation - store pending action
+                        if (confirmationManager && result.actionId) {
+                            confirmationManager.setPending(userId, 'voice_action', {
+                                actionId: result.actionId,
+                                transcription: result.transcription,
+                                intent: result.intent
+                            }, { userId, fromNumber, source: 'voice' });
+                        }
+                        responseText = result.message;
+                        handled = true;
+                        break;
+
+                    case 'clarify':
+                    case 'reject':
+                    case 'transcribed':
+                        // Show result and let user clarify or continue
+                        responseText = result.message;
+                        handled = true;
+                        break;
+
+                    case 'error':
+                        // Error occurred, fall through to skill registry
+                        console.error('[VoiceFlow] Error:', result.message);
+                        // Don't mark as handled - let voice skill try
+                        break;
+                }
+            } catch (err) {
+                console.error('[VoiceFlow] Processing failed:', err.message);
+                // Fall through to skill registry voice handling
+            }
+        }
 
         // AUTO-PROCESS RECEIPTS: If image attached and looks like receipt
         if (numMedia > 0 && mediaContentType?.startsWith('image/') && actionExecutor) {

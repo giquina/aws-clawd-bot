@@ -1,5 +1,6 @@
 {
   "enabled": [
+    "action-control",
     "help",
     "hq-commands",
     "memory",
@@ -32,10 +33,15 @@
     "video",
     "files",
     "ai-settings",
-    "autonomous-config"
+    "autonomous-config",
+    "audit"
   ],
   "disabled": [],
   "config": {
+    "action-control": {
+      "maxHistory": 50,
+      "confirmationTimeout": 300000
+    },
     "help": {
       "showDisabled": false,
       "groupBySkill": true
@@ -91,6 +97,10 @@
     "remote-exec": {
       "defaultTimeout": 60000,
       "maxOutputLength": 3000
+    },
+    "audit": {
+      "retentionDays": 30,
+      "maxQueryResults": 100
     }
   }
 }
