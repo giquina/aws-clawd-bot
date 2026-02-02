@@ -2,11 +2,10 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { getApiKey } from '@/lib/api';
+import { api } from '@/lib/api';
 import {
   MessageSquare,
   Sparkles,
@@ -18,7 +17,8 @@ import {
   Zap,
   Shield,
   ArrowRight,
-  CheckCircle
+  CheckCircle,
+  Activity
 } from 'lucide-react';
 
 const features = [
@@ -58,17 +58,29 @@ const capabilities = [
 ];
 
 export default function LandingPage() {
-  const router = useRouter();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [serverStatus, setServerStatus] = useState<'online' | 'offline' | 'loading'>('loading');
+  const [uptime, setUptime] = useState<number>(0);
 
   useEffect(() => {
     setMounted(true);
-    const apiKey = getApiKey();
-    if (apiKey) {
-      setIsAuthenticated(true);
-    }
+    // Check server status
+    api.getStatus()
+      .then((data) => {
+        setServerStatus('online');
+        setUptime(data.uptime || 0);
+      })
+      .catch(() => {
+        setServerStatus('offline');
+      });
   }, []);
+
+  const formatUptime = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const days = Math.floor(hours / 24);
+    if (days > 0) return `${days}d ${hours % 24}h`;
+    return `${hours}h ${Math.floor((seconds % 3600) / 60)}m`;
+  };
 
   if (!mounted) {
     return null;
@@ -116,21 +128,12 @@ export default function LandingPage() {
 
             {/* CTA Buttons */}
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-              {isAuthenticated ? (
-                <Link href="/dashboard">
-                  <Button size="lg" className="text-lg px-8 py-4">
-                    Go to Dashboard
-                    <ArrowRight className="ml-2 h-5 w-5" />
-                  </Button>
-                </Link>
-              ) : (
-                <Link href="/login">
-                  <Button size="lg" className="text-lg px-8 py-4">
-                    Get Started
-                    <ArrowRight className="ml-2 h-5 w-5" />
-                  </Button>
-                </Link>
-              )}
+              <Link href="/dashboard">
+                <Button size="lg" className="text-lg px-8 py-4">
+                  Open Dashboard
+                  <ArrowRight className="ml-2 h-5 w-5" />
+                </Button>
+              </Link>
               <a
                 href="https://github.com/giquina/aws-clawd-bot"
                 target="_blank"
@@ -146,8 +149,10 @@ export default function LandingPage() {
             {/* Quick Stats */}
             <div className="mt-16 flex flex-wrap items-center justify-center gap-8 text-sm text-gray-500 dark:text-gray-400">
               <div className="flex items-center gap-2">
-                <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span>Live on AWS EC2</span>
+                <div className={`h-2 w-2 rounded-full ${serverStatus === 'online' ? 'bg-green-500 animate-pulse' : serverStatus === 'offline' ? 'bg-red-500' : 'bg-yellow-500 animate-pulse'}`}></div>
+                <span>
+                  {serverStatus === 'online' ? `Online (${formatUptime(uptime)} uptime)` : serverStatus === 'offline' ? 'Server Offline' : 'Checking...'}
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-primary-500" />
@@ -287,29 +292,16 @@ export default function LandingPage() {
             <p className="text-primary-100 text-lg mb-8 max-w-2xl mx-auto">
               Access your ClawdBot dashboard and take control of your AI assistant today.
             </p>
-            {isAuthenticated ? (
-              <Link href="/dashboard">
-                <Button
-                  variant="secondary"
-                  size="lg"
-                  className="bg-white text-primary-600 hover:bg-gray-100 text-lg px-8"
-                >
-                  Open Dashboard
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Button>
-              </Link>
-            ) : (
-              <Link href="/login">
-                <Button
-                  variant="secondary"
-                  size="lg"
-                  className="bg-white text-primary-600 hover:bg-gray-100 text-lg px-8"
-                >
-                  Login Now
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Button>
-              </Link>
-            )}
+            <Link href="/dashboard">
+              <Button
+                variant="secondary"
+                size="lg"
+                className="bg-white text-primary-600 hover:bg-gray-100 text-lg px-8"
+              >
+                Open Dashboard
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </Button>
+            </Link>
           </div>
         </Card>
       </div>

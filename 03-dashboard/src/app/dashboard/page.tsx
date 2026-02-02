@@ -1,11 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { api, getApiKey, type StatusResponse } from '@/lib/api';
+import { api, type StatusResponse } from '@/lib/api';
 import { formatUptime } from '@/lib/utils';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { AutoRefreshIndicator, RefreshPulse } from '@/components/auto-refresh-indicator';
@@ -15,8 +13,6 @@ const REFRESH_INTERVAL_MS = 30000; // 30 seconds
 const STORAGE_KEY = 'clawdbot-dashboard-auto-refresh';
 
 export default function DashboardPage() {
-  const router = useRouter();
-
   const {
     data: status,
     loading,
@@ -32,14 +28,6 @@ export default function DashboardPage() {
     enabled: true,
     storageKey: STORAGE_KEY,
   });
-
-  useEffect(() => {
-    // Check if authenticated
-    const apiKey = getApiKey();
-    if (!apiKey) {
-      router.push('/login');
-    }
-  }, [router]);
 
   if (loading) {
     return (

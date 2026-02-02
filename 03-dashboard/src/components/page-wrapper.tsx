@@ -6,7 +6,7 @@ interface PageWrapperProps {
   children: React.ReactNode;
 }
 
-const publicPages = ['/', '/login'];
+const publicPages = ['/', '/login', '/status'];
 
 export function PageWrapper({ children }: PageWrapperProps) {
   const pathname = usePathname();

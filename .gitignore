@@ -26,8 +26,9 @@ yarn-debug.log*
 yarn-error.log*
 package-lock.json
 
-# Logs
-logs/
+# Logs (but not dashboard app/logs page)
+/logs/
+02-whatsapp-bot/logs/
 *.log
 *.log.*
 

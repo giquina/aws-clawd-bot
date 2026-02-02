@@ -49,3 +49,17 @@
     text-wrap: balance;
   }
 }
+
+/* Status page progress animation */
+@keyframes status-progress {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+.animate-status-progress {
+  animation: status-progress 30s linear infinite;
+}
