@@ -4,6 +4,7 @@
  * Classifies queries and routes to the best AI provider:
  * - Simple queries → Groq (FREE)
  * - Social/X/Twitter → Grok (xAI) - best for social search
+ * - Research/Knowledge → Perplexity - best for research and current info
  * - Planning/Strategy → Claude Opus (THE BRAIN)
  * - Coding/Implementation → Claude Sonnet (THE CODER)
  *
@@ -29,6 +30,16 @@ class Router {
             'public opinion', 'sentiment', 'social search',
             'influencer', 'followers', 'retweet', 'likes',
             'x search', 'twitter search', 'social buzz'
+        ];
+
+        // Research/Knowledge keywords (use Perplexity - best for research)
+        this.researchKeywords = [
+            'research', 'find information', 'what is', 'how do i',
+            'best way to', 'summarize', 'explain', 'knowledge',
+            'current', 'latest', 'recent', 'update', 'news',
+            'industry', 'market', 'trend', 'analysis', 'compare',
+            'learn about', 'tell me about', 'overview', 'define',
+            'look up', 'search for', 'find out', 'discover'
         ];
 
         // Planning/Strategy keywords (use Claude Opus - THE BRAIN)
@@ -222,8 +233,8 @@ class Router {
         } catch (error) {
             this.stats[provider].errors++;
 
-            // Try fallback chain: grok -> claude -> groq
-            const fallbackOrder = ['claude', 'groq', 'grok'];
+            // Try fallback chain: claude -> perplexity -> groq -> grok
+            const fallbackOrder = ['claude', 'perplexity', 'groq', 'grok'];
             for (const fallback of fallbackOrder) {
                 if (fallback !== provider && this.providers[fallback]) {
                     console.log(`[Router] ${provider} failed, falling back to ${fallback}`);
@@ -260,7 +271,17 @@ class Router {
             }
         }
 
-        // 3. Check for PLANNING/STRATEGY queries → Claude Opus (THE BRAIN)
+        // 3. Check for RESEARCH/KNOWLEDGE queries → Perplexity (if available)
+        if (this.providers.perplexity) {
+            for (const keyword of this.researchKeywords) {
+                if (lowerQuery.includes(keyword)) {
+                    console.log(`[Router] Research query detected: "${keyword}" → Perplexity`);
+                    return { provider: 'perplexity', taskType: 'research' };
+                }
+            }
+        }
+
+        // 4. Check for PLANNING/STRATEGY queries → Claude Opus (THE BRAIN)
         for (const keyword of this.planningKeywords) {
             if (lowerQuery.includes(keyword)) {
                 console.log(`[Router] Planning query detected: "${keyword}" → Claude Opus`);
@@ -268,14 +289,14 @@ class Router {
             }
         }
 
-        // 4. Check for complex CODING keywords → Claude Sonnet
+        // 5. Check for complex CODING keywords → Claude Sonnet
         for (const keyword of this.complexKeywords) {
             if (lowerQuery.includes(keyword)) {
                 return { provider: 'claude', taskType: 'coding' };
             }
         }
 
-        // 5. Check if query matches simple patterns → Groq (FREE)
+        // 6. Check if query matches simple patterns → Groq (FREE)
         for (const pattern of this.simplePatterns) {
             if (pattern.test(query)) {
                 // But verify it's not actually complex
@@ -285,18 +306,18 @@ class Router {
             }
         }
 
-        // 6. Word count heuristic: very short = simple → Groq
+        // 7. Word count heuristic: very short = simple → Groq
         const wordCount = query.trim().split(/\s+/).length;
         if (wordCount <= 5 && !this.containsCodeIndicators(query)) {
             return { provider: 'groq', taskType: 'simple' };
         }
 
-        // 7. Long or ambiguous queries → Claude
+        // 8. Long or ambiguous queries → Claude
         if (wordCount > 30) {
             return { provider: 'claude', taskType: 'complex' };
         }
 
-        // 8. Default: Groq for medium-length queries without code indicators
+        // 9. Default: Groq for medium-length queries without code indicators
         return this.containsCodeIndicators(query)
             ? { provider: 'claude', taskType: 'coding' }
             : { provider: 'groq', taskType: 'general' };
@@ -437,6 +458,10 @@ class Router {
 
         if (provider === 'grok') {
             return 'Social media/X/Twitter query → Grok (best for social search)';
+        }
+
+        if (provider === 'perplexity') {
+            return 'Research/knowledge query → Perplexity (best for research)';
         }
 
         if (provider === 'claude') {

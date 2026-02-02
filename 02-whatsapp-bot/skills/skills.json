@@ -1,10 +1,12 @@
 {
   "enabled": [
     "help",
+    "hq-commands",
     "memory",
     "tasks",
     "remote-exec",
     "project-context",
+    "chat-management",
     "github",
     "morning-brief",
     "research",
@@ -26,6 +28,7 @@
     "multi-repo",
     "project-creator",
     "voice",
+    "voice-call",
     "video",
     "files",
     "ai-settings",
@@ -66,10 +69,22 @@
     "multi-repo": {},
     "project-creator": {},
     "voice": {},
+    "voice-call": {
+      "defaultVoice": "amy",
+      "maxCallDuration": 300
+    },
     "video": {},
     "files": {},
     "ai-settings": {},
     "autonomous-config": {},
+    "chat-management": {
+      "allowMultipleHQ": false,
+      "defaultNotifications": "all"
+    },
+    "hq-commands": {
+      "cacheTTLMinutes": 30,
+      "maxSearchResults": 20
+    },
     "project-context": {
       "cacheTTLMinutes": 60
     },

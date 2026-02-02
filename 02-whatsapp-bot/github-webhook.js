@@ -1,7 +1,9 @@
 // GitHub Webhook Handler
 // Formats GitHub events into mobile-friendly WhatsApp notifications
+// Now routes alerts to repo-specific chats via ChatRegistry
 
 const crypto = require('crypto');
+const chatRegistry = require('./lib/chat-registry');
 
 class GitHubWebhookHandler {
     constructor() {
@@ -273,6 +275,86 @@ class GitHubWebhookHandler {
         const displayName = name !== tagName ? `${name} (${tagName})` : tagName;
 
         return `[${repo}] ${releaseType} published: ${displayName} by @${user}`;
+    }
+
+    /**
+     * Determine if an event is critical (CI failures, etc.)
+     * @param {string} eventType - GitHub event type
+     * @param {object} payload - GitHub webhook payload
+     * @returns {boolean} - Whether the event is critical
+     */
+    isCriticalEvent(eventType, payload) {
+        // CI failures are critical
+        if (eventType === 'workflow_run' && payload.workflow_run?.conclusion === 'failure') {
+            return true;
+        }
+
+        // Could extend to include other critical events (security alerts, etc.)
+        return false;
+    }
+
+    /**
+     * Determine which chats should receive this notification based on event type
+     * @param {string} eventType - GitHub event type
+     * @param {object} payload - GitHub webhook payload
+     * @returns {Object} - { targets: ChatRegistration[], isCritical: boolean }
+     */
+    getNotificationTargets(eventType, payload) {
+        const repo = payload.repository?.name || 'unknown';
+        const isCritical = this.isCriticalEvent(eventType, payload);
+
+        // Get all chats that should receive this notification
+        const targets = chatRegistry.getNotificationTargets(repo, isCritical);
+
+        console.log(`[GitHub Webhook] Notification targets for ${repo} (critical: ${isCritical}): ${targets.length} chat(s)`);
+
+        return {
+            targets,
+            isCritical,
+            repo
+        };
+    }
+
+    /**
+     * Check if a specific chat should receive this event based on its notification level
+     * @param {Object} chatRegistration - Chat registration from registry
+     * @param {string} eventType - GitHub event type
+     * @param {object} payload - GitHub webhook payload
+     * @returns {boolean} - Whether to send the notification
+     */
+    shouldNotifyChat(chatRegistration, eventType, payload) {
+        const level = chatRegistration.notifications || 'all';
+
+        // 'all' level receives everything
+        if (level === 'all') {
+            return true;
+        }
+
+        // 'critical' level only receives CI failures
+        if (level === 'critical') {
+            return this.isCriticalEvent(eventType, payload);
+        }
+
+        // 'digest' level doesn't receive real-time notifications
+        if (level === 'digest') {
+            return false;
+        }
+
+        // Unknown level defaults to receiving
+        return true;
+    }
+
+    /**
+     * Get the default HQ chat ID (fallback when no repo-specific chat is found)
+     * @returns {string|null} - HQ chat ID or null
+     */
+    getDefaultHQChatId() {
+        const hqChats = chatRegistry.getHQChats();
+        if (hqChats.length > 0) {
+            return hqChats[0].chatId;
+        }
+        // Fall back to environment variable
+        return process.env.YOUR_WHATSAPP ? `whatsapp:${process.env.YOUR_WHATSAPP}` : null;
     }
 }
 

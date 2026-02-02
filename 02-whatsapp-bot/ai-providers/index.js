@@ -5,6 +5,7 @@
  * - Groq (FREE) - Simple queries, greetings, quick answers
  * - Claude (Tiered) - Opus for planning/strategy, Sonnet for coding
  * - Grok (xAI) - Social media, X/Twitter, trends, real-time info
+ * - Perplexity - Research, knowledge, current information
  *
  * Manages provider initialization, health checks, and unified interface.
  */
@@ -12,6 +13,7 @@
 const GroqHandler = require('./groq-handler');
 const ClaudeHandler = require('./claude-handler');
 const GrokHandler = require('./grok-handler');
+const PerplexityHandler = require('./perplexity-handler');
 const Router = require('./router');
 
 class AIProviderRegistry {
@@ -21,7 +23,8 @@ class AIProviderRegistry {
         this.stats = {
             groq: { calls: 0, tokens: 0, errors: 0 },
             claude: { calls: 0, tokens: 0, errors: 0, estimatedCost: 0, opusCalls: 0, sonnetCalls: 0 },
-            grok: { calls: 0, tokens: 0, errors: 0, estimatedCost: 0 }
+            grok: { calls: 0, tokens: 0, errors: 0, estimatedCost: 0 },
+            perplexity: { calls: 0, tokens: 0, errors: 0, estimatedCost: 0 }
         };
         this.initialized = false;
     }
@@ -59,6 +62,15 @@ class AIProviderRegistry {
             console.log('[AI Providers] Grok (xAI) ready - social/X searches');
         } else {
             console.log('[AI Providers] Grok not configured (XAI_API_KEY missing) - social search disabled');
+        }
+
+        // Initialize Perplexity (research, knowledge, current info)
+        if (process.env.PERPLEXITY_API_KEY) {
+            this.providers.perplexity = new PerplexityHandler();
+            await this.providers.perplexity.initialize();
+            console.log('[AI Providers] Perplexity ready - research/knowledge queries');
+        } else {
+            console.log('[AI Providers] Perplexity not configured (PERPLEXITY_API_KEY missing) - research disabled');
         }
 
         // Initialize router
@@ -151,8 +163,9 @@ class AIProviderRegistry {
         const groq = this.stats.groq;
         const claude = this.stats.claude;
         const grok = this.stats.grok;
+        const perplexity = this.stats.perplexity;
         const savings = this.calculateSavings();
-        const total = groq.calls + claude.calls + grok.calls;
+        const total = groq.calls + claude.calls + grok.calls + perplexity.calls;
         const freePercent = total > 0 ? Math.round((groq.calls / total) * 100) : 0;
 
         let summary = `*AI Usage Stats*\n`;
@@ -160,6 +173,9 @@ class AIProviderRegistry {
         summary += `Claude: ${claude.calls} (Opus: ${claude.opusCalls || 0}, Sonnet: ${claude.sonnetCalls || 0})\n`;
         if (grok.calls > 0) {
             summary += `Grok: ${grok.calls} social searches\n`;
+        }
+        if (perplexity.calls > 0) {
+            summary += `Perplexity: ${perplexity.calls} research queries\n`;
         }
         summary += `Free ratio: ${freePercent}%\n`;
         summary += `Est. saved: $${savings.estimatedSaved}`;
@@ -174,7 +190,8 @@ class AIProviderRegistry {
         this.stats = {
             groq: { calls: 0, tokens: 0, errors: 0 },
             claude: { calls: 0, tokens: 0, errors: 0, estimatedCost: 0, opusCalls: 0, sonnetCalls: 0 },
-            grok: { calls: 0, tokens: 0, errors: 0, estimatedCost: 0 }
+            grok: { calls: 0, tokens: 0, errors: 0, estimatedCost: 0 },
+            perplexity: { calls: 0, tokens: 0, errors: 0, estimatedCost: 0 }
         };
     }
 

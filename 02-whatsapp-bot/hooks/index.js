@@ -21,8 +21,18 @@ async function preprocess(message, context = {}) {
     return processed; // Return original (empty) message
   }
 
+  // Build routing context from auto-context (if available)
+  const routerContext = {};
+  if (context.autoRepo) {
+    routerContext.autoRepo = context.autoRepo;
+  }
+  if (context.autoCompany) {
+    routerContext.autoCompany = context.autoCompany;
+  }
+
   // Run through smart router (natural language -> command)
-  processed = await smartRouter.route(processed);
+  // Pass auto-context so commands like "deploy" become "deploy aws-clawd-bot"
+  processed = await smartRouter.route(processed, routerContext);
 
   // Add more preprocessing hooks here as needed
   // processed = await anotherHook.process(processed, context);

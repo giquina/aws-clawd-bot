@@ -1,5 +1,6 @@
 // scheduler/jobs/proactive-alerts.js
-// Proactive Alerts Job - Sends daily WhatsApp alerts for deadlines, PRs, and CI status
+// Proactive Alerts Job - Sends daily alerts for deadlines, PRs, and CI status
+// Primary: Telegram, Backup: WhatsApp (critical only)
 
 const twilio = require('twilio');
 const { Octokit } = require('@octokit/rest');
@@ -7,17 +8,20 @@ const { Octokit } = require('@octokit/rest');
 /**
  * ProactiveAlerts class for sending daily notification digests
  * Checks: Company deadlines, PRs waiting for review, Failed CI runs
+ * Uses Telegram as primary platform, WhatsApp only for critical alerts
  */
 class ProactiveAlerts {
     constructor() {
         this.twilioClient = null;
+        this.telegramHandler = null;
         this.octokit = null;
         this.ownerNumber = process.env.YOUR_WHATSAPP;
         this.twilioNumber = process.env.TWILIO_WHATSAPP_NUMBER;
+        this.telegramHQChatId = process.env.TELEGRAM_HQ_CHAT_ID;
     }
 
     /**
-     * Initialize Twilio and GitHub clients
+     * Initialize Twilio, Telegram, and GitHub clients
      * Called once when the job runs
      */
     initialize() {
@@ -30,6 +34,14 @@ class ProactiveAlerts {
         if (process.env.GITHUB_TOKEN) {
             this.octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
         }
+    }
+
+    /**
+     * Set the Telegram handler for sending alerts
+     * @param {Object} handler - Telegram handler instance
+     */
+    setTelegramHandler(handler) {
+        this.telegramHandler = handler;
     }
 
     /**
@@ -54,12 +66,13 @@ class ProactiveAlerts {
         const prAlerts = await this.checkPRs();
         if (prAlerts.length) alerts.push(...prAlerts);
 
-        // Check failed workflows
+        // Check failed workflows (CI failures are critical - send to WhatsApp too)
         const ciAlerts = await this.checkCI();
+        const hasCritical = ciAlerts.length > 0; // CI failures are critical
         if (ciAlerts.length) alerts.push(...ciAlerts);
 
         if (alerts.length > 0) {
-            const message = await this.sendAlert(alerts);
+            const message = await this.sendAlert(alerts, hasCritical);
             return message;
         } else {
             console.log('[ProactiveAlerts] No alerts to send');
@@ -190,32 +203,51 @@ class ProactiveAlerts {
     }
 
     /**
-     * Send the compiled alerts via WhatsApp
+     * Send the compiled alerts (Telegram primary, WhatsApp for critical only)
      * @param {string[]} alerts - Array of alert messages
+     * @param {boolean} hasCritical - Whether any alerts are critical (CI failures)
      * @returns {Promise<string>} The formatted message that was sent
      */
-    async sendAlert(alerts) {
+    async sendAlert(alerts, hasCritical = false) {
         const message = `*DAILY CLAWDBOT ALERT*
 
 ${alerts.join('\n')}
 
 Reply "deadlines" or "status" for more info.`;
 
-        if (!this.twilioClient || !this.ownerNumber) {
-            console.log('[ProactiveAlerts] Twilio not configured, logging alert only');
-            console.log(message);
-            return message;
+        let sentToTelegram = false;
+
+        // Send to Telegram first (primary platform)
+        if (this.telegramHandler && this.telegramHQChatId) {
+            try {
+                await this.telegramHandler.sendMessage(this.telegramHQChatId, message);
+                console.log('[ProactiveAlerts] Daily alert sent to Telegram');
+                sentToTelegram = true;
+            } catch (e) {
+                console.error('[ProactiveAlerts] Failed to send to Telegram:', e.message);
+            }
         }
 
-        try {
-            await this.twilioClient.messages.create({
-                body: message,
-                from: `whatsapp:${this.twilioNumber}`,
-                to: `whatsapp:${this.ownerNumber}`
-            });
-            console.log('[ProactiveAlerts] Daily alert sent successfully');
-        } catch (e) {
-            console.error('[ProactiveAlerts] Failed to send:', e.message);
+        // Send to WhatsApp only if:
+        // 1. Critical alerts (CI failures) - always backup to WhatsApp
+        // 2. Telegram failed and we need a fallback
+        if (hasCritical || !sentToTelegram) {
+            if (this.twilioClient && this.ownerNumber) {
+                try {
+                    await this.twilioClient.messages.create({
+                        body: message,
+                        from: `whatsapp:${this.twilioNumber}`,
+                        to: `whatsapp:${this.ownerNumber}`
+                    });
+                    const reason = hasCritical ? '(critical backup)' : '(Telegram fallback)';
+                    console.log(`[ProactiveAlerts] Daily alert sent to WhatsApp ${reason}`);
+                } catch (e) {
+                    console.error('[ProactiveAlerts] Failed to send to WhatsApp:', e.message);
+                }
+            } else if (!sentToTelegram) {
+                console.log('[ProactiveAlerts] No messaging platform configured, logging alert only');
+                console.log(message);
+            }
         }
 
         return message;

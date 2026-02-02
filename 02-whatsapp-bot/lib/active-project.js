@@ -53,6 +53,36 @@ function setActiveProject(userId, repoInfo) {
 }
 
 /**
+ * Set permanent project for a chat (from chat-registry auto-context)
+ * This is used when a chat has a registered repo context.
+ * Unlike setActiveProject, this doesn't log "Set for" since it's automatic.
+ * @param {string} chatId - Chat identifier
+ * @param {string} repoName - Repository name (e.g., "aws-clawd-bot")
+ * @returns {RepoInfo} The stored repo info
+ */
+function setPermanentProject(chatId, repoName) {
+  // Assume giquina owner for most repos
+  const owner = process.env.GITHUB_USERNAME || 'giquina';
+
+  const normalized = {
+    owner: owner,
+    repo: repoName,
+    fullName: `${owner}/${repoName}`,
+    setAt: Date.now(),
+    permanent: true // Flag to indicate this is from chat-registry
+  };
+
+  activeProjects.set(chatId, {
+    repoInfo: normalized,
+    lastAccessed: Date.now(),
+    permanent: true // Don't expire permanent contexts
+  });
+
+  console.log(`[ActiveProject] Auto-context for ${chatId}: ${normalized.fullName}`);
+  return normalized;
+}
+
+/**
  * Get active project for a user
  * @param {string} userId - User identifier
  * @returns {RepoInfo|null} Active project info or null if not set/expired
@@ -65,11 +95,14 @@ function getActiveProject(userId) {
     return null;
   }
 
-  // Check if expired (2 hours since last access)
-  if (Date.now() - entry.lastAccessed > PROJECT_TTL) {
-    console.log(`[ActiveProject] Expired for ${userId}`);
-    activeProjects.delete(userId);
-    return null;
+  // Permanent projects (from chat-registry) never expire
+  if (!entry.permanent) {
+    // Check if expired (2 hours since last access)
+    if (Date.now() - entry.lastAccessed > PROJECT_TTL) {
+      console.log(`[ActiveProject] Expired for ${userId}`);
+      activeProjects.delete(userId);
+      return null;
+    }
   }
 
   // Update last accessed time
@@ -188,6 +221,7 @@ function cleanupExpired() {
 
 module.exports = {
   setActiveProject,
+  setPermanentProject,
   getActiveProject,
   clearActiveProject,
   hasActiveProject,

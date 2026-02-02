@@ -18,6 +18,20 @@
 const BaseSkill = require('../base-skill');
 const { getScheduler, CRON } = require('../../scheduler');
 
+// Optional dependencies - graceful degradation
+let chatRegistry = null;
+let crossRepo = null;
+try {
+  chatRegistry = require('../../lib/chat-registry');
+} catch (e) {
+  console.log('[MorningBrief] chat-registry not available');
+}
+try {
+  crossRepo = require('../../lib/cross-repo-queries');
+} catch (e) {
+  console.log('[MorningBrief] cross-repo-queries not available');
+}
+
 class MorningBriefSkill extends BaseSkill {
   name = 'morning-brief';
   description = 'Manage and trigger your daily morning brief';
@@ -111,12 +125,17 @@ class MorningBriefSkill extends BaseSkill {
 
   /**
    * Handle "morning brief" command - Generate and send brief immediately
+   * Now context-aware: HQ gets aggregated brief, repo chats get repo-specific brief
    */
   async handleMorningBriefCommand(userId) {
     try {
       this.log('info', `Generating morning brief for user ${userId}`);
 
-      // Generate the brief using the scheduler's handler
+      // Check chat context for HQ vs repo-specific briefs
+      const chatContext = chatRegistry ? chatRegistry.get(userId) : null;
+      const isHQ = !chatContext || chatContext.type === chatRegistry?.CONTEXT_TYPES?.HQ;
+      const repoContext = chatContext?.type === chatRegistry?.CONTEXT_TYPES?.REPO ? chatContext.repo : null;
+
       let briefMessage = '';
 
       try {
@@ -126,23 +145,176 @@ class MorningBriefSkill extends BaseSkill {
 
         briefMessage = `${greeting}\n\n`;
 
-        // Get pending tasks
-        briefMessage += await this._formatTasksSummary(userId);
-
-        // Get activity stats
-        briefMessage += await this._formatActivityStats(userId);
+        // Generate context-appropriate brief
+        if (isHQ && crossRepo) {
+          // HQ Mode: Aggregated cross-repo brief
+          briefMessage += await this._formatHQBrief(userId);
+        } else if (repoContext && crossRepo) {
+          // Repo Mode: Repo-specific brief
+          briefMessage += await this._formatRepoBrief(userId, repoContext);
+        } else {
+          // Fallback: Standard task-based brief
+          briefMessage += await this._formatTasksSummary(userId);
+          briefMessage += await this._formatActivityStats(userId);
+        }
 
         // Get quick motivational message
         briefMessage += this._getMotivationalMessage();
       } catch (error) {
         this.log('error', 'Error generating brief content', error.message);
-        briefMessage = `⚠️ Unable to generate full brief:\n${error.message}`;
+        briefMessage = `Unable to generate full brief:\n${error.message}`;
       }
 
       return this.success(briefMessage.trim());
     } catch (error) {
       this.log('error', 'Error handling morning brief command', error);
       return this.error('Failed to generate morning brief. Please try again.');
+    }
+  }
+
+  /**
+   * Format HQ-mode aggregated brief (cross-repo)
+   * @private
+   */
+  async _formatHQBrief(userId) {
+    let section = '*HQ BRIEF - All Projects*\n';
+    section += '\u2501'.repeat(20) + '\n\n';
+
+    try {
+      // Get aggregated data
+      const briefData = await crossRepo.getAggregatedBrief();
+
+      // Overview stats
+      section += '*Overview:*\n';
+      section += `Projects: ${briefData.stats.totalProjects} (${briefData.stats.activeProjects} active)\n`;
+      section += `Tasks: ${briefData.stats.totalPending} pending, ${briefData.stats.totalInProgress} in progress\n\n`;
+
+      // Top 5 projects by pending tasks
+      if (briefData.projectSummaries && briefData.projectSummaries.length > 0) {
+        section += '*Project Status:*\n';
+        const topProjects = briefData.projectSummaries.slice(0, 5);
+
+        for (const project of topProjects) {
+          if (!project.hasTodo) continue;
+
+          const icon = project.inProgressTasks > 0 ? '\uD83D\uDFE1' :
+                       project.pendingTasks > 0 ? '\u2B1C' : '\u2705';
+          section += `${icon} ${project.repo}: ${project.pendingTasks} pending (${project.percentComplete}% done)\n`;
+        }
+        section += '\n';
+      }
+
+      // Urgent items
+      const urgent = briefData.urgentItems;
+      if (urgent.ciFailures.length > 0 || urgent.stalePRs.length > 0 || urgent.urgentTasks.length > 0) {
+        section += '*Needs Attention:*\n';
+
+        for (const failure of urgent.ciFailures.slice(0, 2)) {
+          section += `\u26A0\uFE0F CI failed: ${failure.repo}\n`;
+        }
+
+        for (const pr of urgent.stalePRs.slice(0, 2)) {
+          section += `\uD83D\uDCDD Stale PR: ${pr.repo} #${pr.number} (${pr.daysOld}d)\n`;
+        }
+
+        for (const task of urgent.urgentTasks.slice(0, 2)) {
+          section += `\u203C\uFE0F Urgent: ${task.repo}\n`;
+        }
+        section += '\n';
+      }
+
+      // Recommendation
+      if (briefData.recommendation) {
+        section += `*Recommendation:*\n${briefData.recommendation}\n\n`;
+      }
+
+      // Include standard task summary
+      section += await this._formatTasksSummary(userId);
+
+    } catch (error) {
+      this.log('warn', 'Error generating HQ brief', error.message);
+      section += '_Error loading cross-repo data_\n\n';
+      section += await this._formatTasksSummary(userId);
+    }
+
+    return section;
+  }
+
+  /**
+   * Format repo-specific brief
+   * @private
+   */
+  async _formatRepoBrief(userId, repoName) {
+    let section = `*${repoName.toUpperCase()} BRIEF*\n`;
+    section += '\u2501'.repeat(20) + '\n\n';
+
+    try {
+      // Get repo-specific data from cross-repo queries
+      const summaries = await crossRepo.getAllProjectsSummary();
+      const repoData = summaries.find(s => s.repo.toLowerCase() === repoName.toLowerCase());
+
+      if (repoData && repoData.hasTodo) {
+        section += '*TODO Status:*\n';
+        section += `Pending: ${repoData.pendingTasks} | In Progress: ${repoData.inProgressTasks}\n`;
+        section += `Completed: ${repoData.completedTasks} (${repoData.percentComplete}% done)\n\n`;
+
+        if (repoData.lastActivity) {
+          const lastDate = new Date(repoData.lastActivity);
+          section += `Last activity: ${this._formatRelativeTime(lastDate)}\n\n`;
+        }
+      } else {
+        section += `No TODO.md found for ${repoName}\n\n`;
+      }
+
+      // Check for urgent items specific to this repo
+      const urgentItems = await crossRepo.getUrgentItems();
+
+      const repoFailures = urgentItems.ciFailures.filter(f => f.repo.toLowerCase() === repoName.toLowerCase());
+      const repoPRs = urgentItems.stalePRs.filter(pr => pr.repo.toLowerCase() === repoName.toLowerCase());
+
+      if (repoFailures.length > 0 || repoPRs.length > 0) {
+        section += '*Needs Attention:*\n';
+
+        for (const failure of repoFailures) {
+          section += `\u26A0\uFE0F CI failed: ${failure.workflow}\n`;
+        }
+
+        for (const pr of repoPRs) {
+          section += `\uD83D\uDCDD PR #${pr.number}: ${pr.title.substring(0, 40)}... (${pr.daysOld}d old)\n`;
+        }
+        section += '\n';
+      }
+
+      // Include standard task summary
+      section += await this._formatTasksSummary(userId);
+
+    } catch (error) {
+      this.log('warn', `Error generating repo brief for ${repoName}`, error.message);
+      section += await this._formatTasksSummary(userId);
+    }
+
+    return section;
+  }
+
+  /**
+   * Format relative time
+   * @private
+   */
+  _formatRelativeTime(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 60) {
+      return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+    } else if (diffHours < 24) {
+      return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+    } else if (diffDays < 7) {
+      return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+    } else {
+      return date.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
     }
   }
 

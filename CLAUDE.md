@@ -51,6 +51,13 @@ ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 "pm2 logs clawd-bot --line
 | `/github-webhook` | POST | GitHub webhook (events: push, PR, issues) |
 | `/health` | GET | Health check and status information |
 
+### Voice Calling (Twilio Voice)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/voice/outbound` | POST | TwiML for outbound calls |
+| `/voice/response` | POST | Speech recognition handler |
+| `/voice/status` | POST | Call status callbacks |
+
 ### REST API (for MCP Server & Claude Code App)
 All API endpoints require `X-API-Key` header with `CLAWDBOT_API_KEY` value.
 
@@ -227,6 +234,8 @@ ClawdBot uses smart AI routing to minimize costs:
 | `02-whatsapp-bot/lib/actions/receipt-processor.js` | Claude Vision receipts |
 | `02-whatsapp-bot/mcp-server/index.js` | MCP server for Claude Desktop/App |
 | `02-whatsapp-bot/mcp-server/README.md` | MCP setup documentation |
+| `02-whatsapp-bot/voice-handler.js` | Twilio Voice calling handler |
+| `02-whatsapp-bot/skills/voice-call/index.js` | Voice call skill (commands) |
 | `config/project-registry.json` | 16 projects with capabilities |
 | `config/.env.local` | Environment variables (never modify via code) |
 
@@ -238,6 +247,13 @@ GROQ_API_KEY=gsk_...        # FREE - get from console.groq.com
 ANTHROPIC_API_KEY=sk-...    # Claude - required
 XAI_API_KEY=xai-...         # Grok - optional, for social search
 CLAWDBOT_API_KEY=...        # API key for MCP/REST API access
+```
+
+Required for voice calling:
+```
+TWILIO_PHONE_NUMBER=+1...   # Twilio voice-enabled phone number
+YOUR_PHONE_NUMBER=+44...    # Your phone number (recipient)
+BASE_URL=http://...         # Public URL for voice webhooks
 ```
 
 ## Adding a New Skill
@@ -302,6 +318,21 @@ remote status               → Show all PM2 processes
 remote commands             → List allowed commands
 ```
 
+### Voice Call Skill (`skills/voice-call/`)
+```
+call me                     → Call immediately with greeting
+call me about <message>     → Call with specific message
+call me at HH:MM            → Schedule call for specific time
+call me in X minutes/hours  → Schedule call with delay
+hang up                     → End active call
+urgent call <message>       → Make urgent call
+voice status                → Show voice configuration
+voice voices                → List available TTS voices
+voice set voice <name>      → Set default voice (amy, brian, etc.)
+```
+
+**Available Voices:** amy (British female, default), brian (British male), emma (British female), joanna (American female), matthew (American male), salli, ivy, kendra, kimberly, joey
+
 ### Lib Utilities (`lib/`)
 | File | Purpose |
 |------|---------|
@@ -365,7 +396,7 @@ The smart router handles casual speech:
 | **Claude Code Agent** | project-context, remote-exec |
 | **GitHub** | github, coder, review, stats, actions, multi-repo, project-creator |
 | **Accountancy** | deadlines, companies, governance, intercompany, receipts, moltbook |
-| **Media** | image-analysis, voice, video, files |
+| **Media** | image-analysis, voice, voice-call, video, files |
 | **Scheduling** | morning-brief, digest, overnight |
 | **Research** | research, vercel |
 | **Config** | ai-settings, autonomous-config |

@@ -303,11 +303,12 @@ class SkillRegistry extends EventEmitter {
 
     // Group skills by category based on name patterns
     const categories = {
-      'GitHub & Code': ['github', 'coder', 'review', 'actions', 'stats', 'multi-repo', 'project-creator'],
+      'HQ & Cross-Repo': ['hq-commands', 'multi-repo', 'project-context', 'chat-management'],
+      'GitHub & Code': ['github', 'coder', 'review', 'actions', 'stats', 'project-creator'],
       'Accountancy': ['deadlines', 'companies', 'governance', 'intercompany', 'receipts'],
       'Productivity': ['digest', 'overnight', 'tasks', 'memory', 'reminders', 'morning-brief'],
       'Social': ['moltbook'],
-      'System': ['help', 'voice', 'vercel', 'research']
+      'System': ['help', 'voice', 'vercel', 'research', 'remote-exec']
     };
 
     let docs = '';
