@@ -664,10 +664,28 @@ The smart router handles casual speech:
 | **GitHub** | github, coder, review, stats, actions, multi-repo, project-creator |
 | **Accountancy** | deadlines, companies, governance, intercompany, receipts, moltbook |
 | **Media** | image-analysis, voice, voice-call, video, files |
+| **Browser** | browser (browse, screenshot, search, extract) |
 | **Scheduling** | morning-brief, digest, overnight |
 | **Research** | research, vercel |
 | **Chat/Platform** | chat-management, hq-commands |
 | **Config** | ai-settings, autonomous-config |
+| **OpenClaw** | moltbook (openclaw status, feed, post) |
+
+## Browser Skill (`skills/browser/`)
+
+Web automation using your installed Google Chrome:
+
+```
+browse <url>              → Fetch and summarize webpage content
+screenshot <url>          → Take screenshot (saved locally)
+search <query>            → Search Google and return results
+extract <url> <selector>  → Extract text using CSS selector
+browser status            → Show browser configuration
+```
+
+**Configuration:**
+- `CHROME_PATH` - Path to Chrome executable (auto-detected on most systems)
+- `BROWSER_HEADLESS` - Set to `false` for visible browser (default: true)
 
 ## Audit Logging
 

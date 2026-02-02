@@ -14,6 +14,7 @@
     "vercel",
     "reminders",
     "moltbook",
+    "browser",
     "deadlines",
     "companies",
     "governance",
@@ -60,6 +61,10 @@
       "maxDelayHours": 24
     },
     "moltbook": {},
+    "browser": {
+      "headless": true,
+      "timeout": 30000
+    },
     "deadlines": {},
     "companies": {},
     "governance": {},
