@@ -3,7 +3,7 @@
 ## Overview
 This document captures ideas for improving ClawdBot beyond the core implementation. Ideas range from quick wins to ambitious future features.
 
-**Last Updated:** 2026-01-31 (v2.0 Release)
+**Last Updated:** 2026-02-02 (v2.3 Verified)
 
 ---
 
@@ -40,6 +40,8 @@ This document captures ideas for improving ClawdBot beyond the core implementati
 | Overnight Queue | ✅ Done | `autonomous/nightly-autonomous.js` |
 | Model Selection | ✅ Done | `ai mode economy/balanced/quality` |
 | Quick Actions + Confirm | ✅ Done | `confirmation-manager.js` |
+| MCP Server | ✅ Done | 9 tools for Claude Desktop/App integration |
+| REST API | ✅ Done | 9 endpoints with API key auth |
 
 ---
 
@@ -220,11 +222,13 @@ tools: [
 ]
 ```
 
-### 26. MCP Server Integration
-Connect to Model Context Protocol servers:
-- @anthropic/mcp-server-github
-- @anthropic/mcp-server-filesystem
-- @anthropic/mcp-server-memory
+### 26. MCP Server Integration ✅ DONE (v2.3)
+ClawdBot now IS an MCP server with 9 tools:
+- clawdbot_status, clawdbot_message, clawdbot_projects
+- clawdbot_project_status, clawdbot_deploy, clawdbot_command
+- clawdbot_memory, clawdbot_whatsapp, clawdbot_skills
+
+**Setup:** Add to Claude Desktop config - see `mcp-server/README.md`
 
 ### 27. Agent Delegation
 Spawn sub-agents for complex tasks:
@@ -377,51 +381,48 @@ Occasionally share helpful tips:
 
 ---
 
-## Priority Matrix (Updated for v2.0)
+## Priority Matrix (Updated for v2.3)
 
 | Effort | High Impact | Low Impact |
 |--------|-------------|------------|
 | **Low** | ~~Help command~~ ✅, Better errors, Emoji signature | Streak tracker, Tips |
 | **Medium** | Telegram, ~~GitHub webhooks~~ ✅, ~~Overnight queue~~ ✅ | Achievements, Personality modes |
-| **High** | MCP integration, Visual dashboard, Agent delegation | Voice support, Personal CRM |
+| **High** | ~~MCP integration~~ ✅, Visual dashboard, Agent delegation | ~~Voice support~~ ✅, Personal CRM |
 
 ---
 
 ## 🎯 RECOMMENDED NEXT STEPS
 
-Based on current v2.0 capabilities, here are the highest-value additions:
+Based on current v2.3 capabilities, here are the highest-value additions:
 
-### 1. **Overnight Work Queue** (High Value)
-Let the bot work on tasks while you sleep:
-```
-User: tonight, fix all ESLint errors in giquina-accountancy
-Bot: Added to queue. I'll create PRs by morning.
-```
+### 1. ~~**Overnight Work Queue**~~ ✅ DONE (v2.3)
+Implemented in `autonomous/nightly-autonomous.js`
 
 ### 2. ~~**Real-time GitHub Webhooks**~~ ✅ DONE (v2.3)
-Webhook handler implemented at `/github-webhook`:
-- New PR opened → WhatsApp notification ✅
-- CI fails → WhatsApp alert ✅
-- Issue created → WhatsApp notification ✅
+Webhook handler implemented at `/github-webhook`
 
 **To enable:** Configure each GitHub repo's webhook settings to POST to `http://16.171.150.151:3000/github-webhook`
 
-### 3. **Multi-Repo Operations** (Medium Value)
-```
-User: search all repos for TODO comments
-User: compare activity across all repos
-```
+### 3. ~~**MCP Server Integration**~~ ✅ DONE (v2.3)
+Full MCP server with 9 tools - see `mcp-server/README.md`
 
-### 4. **MCP Server Integration** (High Value, High Effort)
-Connect to Model Context Protocol for richer tools:
-- Better file system access
-- Enhanced memory
-- Tool chaining
+### 4. **Web Dashboard** (High Value, High Effort) 🎯 NEXT
+Visual interface for:
+- Task kanban board
+- Conversation history viewer
+- Memory/facts explorer
+- Skill configuration
+- Activity timeline
 
 ### 5. **Telegram Integration** (Medium Value)
 - Richer formatting (buttons, inline keyboards)
 - Better code snippet display
 - Multiple chat support
+
+### 6. **Multi-User Support** (Medium Value)
+- Per-user conversation contexts
+- Role-based permissions
+- Team collaboration
 
 ---
 
@@ -442,5 +443,5 @@ Connect to Model Context Protocol for richer tools:
 
 ---
 
-*Last Updated: 2026-02-01 (v2.3 Claude Code Agent Release)*
+*Last Updated: 2026-02-02 (v2.3 Verified Complete)*
 *Contributions welcome! Add your ideas below.*
