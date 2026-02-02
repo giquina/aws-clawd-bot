@@ -624,11 +624,11 @@ IMPORTANT: You can READ actual code files! If someone asks about code in a repo,
 - "add task <task>" / "my tasks" - track your todos
 - "remind me <when> to <what>" - set reminders
 
-🦞 MOLTBOOK (AI Social Network):
-- "join moltbook" - connect to Moltbook
-- "post to moltbook: <message>" - post to Moltbook
-- "moltbook feed" - see what other AIs are posting
-- "moltbook status" - check connection
+🦞 OPENCLAW (AI Agent Network):
+- "join openclaw" - connect to OpenClaw
+- "post to openclaw: <message>" - post to OpenClaw
+- "openclaw feed" - see what other AIs are posting
+- "openclaw status" - check connection
 
 🤖 AI SETTINGS:
 - "ai mode economy" - use FREE Groq for everything

@@ -1,64 +1,100 @@
 /**
- * Moltbook Skill - AI Social Network Integration for ClawdBot
+ * OpenClaw Skill - AI Agent Network Integration for ClawdBot
  *
- * Moltbook is an AI-only social network launched January 2026 where
- * AI agents interact, share updates, and build connections.
+ * OpenClaw (formerly Clawdbot → Moltbot → OpenClaw) is an open-source
+ * personal AI assistant platform created by Peter Steinberger.
+ * https://openclaw.ai | https://github.com/openclaw/openclaw
  *
  * This skill enables ClawdBot to:
- * - Post updates to Moltbook
+ * - Post updates to OpenClaw network
  * - Check connection status
  * - View feed from other AI agents
- * - Join/initialize Moltbook connection
+ * - Join/initialize OpenClaw connection
  *
  * Commands:
- *   post to moltbook: <message>  - Queue a post for Moltbook
- *   moltbook status              - Check connection status
- *   moltbook feed                - Get recent posts from Moltbook
- *   join moltbook                - Initialize/connect to Moltbook
+ *   post to openclaw: <message>  - Queue a post for OpenClaw
+ *   openclaw status              - Check connection status
+ *   openclaw feed                - Get recent posts from OpenClaw
+ *   join openclaw                - Initialize/connect to OpenClaw
+ *
+ * Legacy commands (for backwards compatibility):
+ *   moltbook status, moltbook feed, join moltbook, etc.
  *
  * @example
- * post to moltbook: Just helped a human debug their Docker setup!
- * moltbook status
- * moltbook feed
- * join moltbook
+ * post to openclaw: Just helped a human debug their Docker setup!
+ * openclaw status
+ * openclaw feed
+ * join openclaw
  */
 
 const BaseSkill = require('../base-skill');
 
-class MoltbookSkill extends BaseSkill {
-  name = 'moltbook';
-  description = 'AI-only social network integration - post, view feed, connect with AI agents';
+class OpenClawSkill extends BaseSkill {
+  name = 'moltbook'; // Keep internal name for backwards compatibility
+  description = 'OpenClaw AI agent network - post, view feed, connect with AI agents (formerly Moltbook)';
   priority = 40;
 
   commands = [
+    // OpenClaw commands (primary)
+    {
+      pattern: /^post\s+to\s+openclaw[:\s]+(.+)$/i,
+      description: 'Post a message to OpenClaw',
+      usage: 'post to openclaw: <message>'
+    },
+    {
+      pattern: /^openclaw\s+post[:\s]+(.+)$/i,
+      description: 'Post a message to OpenClaw (alt syntax)',
+      usage: 'openclaw post: <message>'
+    },
+    {
+      pattern: /^openclaw\s+status$/i,
+      description: 'Check OpenClaw connection status',
+      usage: 'openclaw status'
+    },
+    {
+      pattern: /^openclaw\s+feed$/i,
+      description: 'View recent posts from OpenClaw',
+      usage: 'openclaw feed'
+    },
+    {
+      pattern: /^join\s+openclaw$/i,
+      description: 'Initialize connection to OpenClaw',
+      usage: 'join openclaw'
+    },
+    {
+      pattern: /^openclaw\s+connect$/i,
+      description: 'Connect to OpenClaw (alt syntax)',
+      usage: 'openclaw connect'
+    },
+    // Legacy Moltbook commands (backwards compatibility)
     {
       pattern: /^post\s+to\s+moltbook[:\s]+(.+)$/i,
-      description: 'Post a message to Moltbook',
+      description: 'Post a message (legacy)',
       usage: 'post to moltbook: <message>'
     },
     {
       pattern: /^moltbook\s+post[:\s]+(.+)$/i,
-      description: 'Post a message to Moltbook (alt syntax)',
+      description: 'Post a message (legacy)',
       usage: 'moltbook post: <message>'
     },
     {
       pattern: /^moltbook\s+status$/i,
-      description: 'Check Moltbook connection status',
+      description: 'Check connection status (legacy)',
       usage: 'moltbook status'
     },
     {
       pattern: /^moltbook\s+feed$/i,
-      description: 'View recent posts from Moltbook',
+      description: 'View recent posts (legacy)',
       usage: 'moltbook feed'
     },
     {
       pattern: /^join\s+moltbook$/i,
-      description: 'Initialize connection to Moltbook',
+      description: 'Initialize connection (legacy)',
       usage: 'join moltbook'
     },
     {
       pattern: /^moltbook\s+connect$/i,
-      description: 'Connect to Moltbook (alt syntax)',
+      description: 'Connect (legacy)',
       usage: 'moltbook connect'
     }
   ];
@@ -79,55 +115,55 @@ class MoltbookSkill extends BaseSkill {
     // Mock feed data (to be replaced with real API calls)
     this.mockFeed = [];
 
-    // API configuration
-    this.apiKey = process.env.MOLTBOOK_API_KEY || null;
-    this.apiBaseUrl = process.env.MOLTBOOK_API_URL || 'https://api.moltbook.ai/v1';
+    // API configuration - support both new and legacy env vars
+    this.apiKey = process.env.OPENCLAW_API_KEY || process.env.MOLTBOOK_API_KEY || null;
+    this.apiBaseUrl = process.env.OPENCLAW_API_URL || process.env.MOLTBOOK_API_URL || 'https://api.openclaw.ai/v1';
   }
 
   /**
-   * Execute Moltbook commands
+   * Execute OpenClaw commands
    */
   async execute(command, context) {
     const { raw } = this.parseCommand(command);
 
     try {
-      // Join/connect to Moltbook
-      if (/^(join\s+moltbook|moltbook\s+connect)$/i.test(raw)) {
-        return await this.joinMoltbook(context);
+      // Join/connect to OpenClaw (supports both openclaw and moltbook keywords)
+      if (/^(join\s+(openclaw|moltbook)|(openclaw|moltbook)\s+connect)$/i.test(raw)) {
+        return await this.joinOpenClaw(context);
       }
 
       // Check status
-      if (/^moltbook\s+status$/i.test(raw)) {
+      if (/^(openclaw|moltbook)\s+status$/i.test(raw)) {
         return this.getStatus();
       }
 
       // View feed
-      if (/^moltbook\s+feed$/i.test(raw)) {
+      if (/^(openclaw|moltbook)\s+feed$/i.test(raw)) {
         return await this.getFeed(context);
       }
 
-      // Post to Moltbook
-      const postMatch = raw.match(/^(?:post\s+to\s+moltbook|moltbook\s+post)[:\s]+(.+)$/i);
+      // Post to OpenClaw
+      const postMatch = raw.match(/^(?:post\s+to\s+(?:openclaw|moltbook)|(?:openclaw|moltbook)\s+post)[:\s]+(.+)$/i);
       if (postMatch) {
         const message = postMatch[1].trim();
-        return await this.postToMoltbook(message, context);
+        return await this.postToOpenClaw(message, context);
       }
 
-      return this.error('Unknown Moltbook command. Try: moltbook status, moltbook feed, or post to moltbook: <message>');
+      return this.error('Unknown OpenClaw command. Try: openclaw status, openclaw feed, or post to openclaw: <message>');
     } catch (err) {
-      this.log('error', 'Moltbook command failed', err);
-      return this.error(`Moltbook error: ${err.message}`);
+      this.log('error', 'OpenClaw command failed', err);
+      return this.error(`OpenClaw error: ${err.message}`);
     }
   }
 
   /**
-   * Join/initialize Moltbook connection
+   * Join/initialize OpenClaw connection
    */
-  async joinMoltbook(context) {
+  async joinOpenClaw(context) {
     // Check if already connected
     if (this.connected) {
       return this.success(
-        `Already connected to Moltbook!\n\n` +
+        `Already connected to OpenClaw!\n\n` +
         `*Agent:* ${this.agentName}\n` +
         `*ID:* ${this.agentId}\n` +
         `*Joined:* ${this.joinedAt.toLocaleDateString('en-GB')}`
@@ -138,7 +174,7 @@ class MoltbookSkill extends BaseSkill {
     if (this.apiKey) {
       // TODO: Real API connection
       // const response = await this.callApi('/agents/connect', { name: this.agentName });
-      this.log('info', 'Moltbook API key found - would connect to real API');
+      this.log('info', 'OpenClaw API key found - would connect to real API');
     }
 
     // For now, simulate connection (mock mode)
@@ -149,14 +185,14 @@ class MoltbookSkill extends BaseSkill {
     // Initialize mock feed with some sample posts
     this.initializeMockFeed();
 
-    const response = `*Welcome to Moltbook!*\n\n` +
+    const response = `*Welcome to OpenClaw!*\n\n` +
       `Connected successfully.\n\n` +
       `*Your Agent Profile:*\n` +
       `Name: ${this.agentName}\n` +
       `ID: ${this.agentId}\n` +
       `Mode: ${this.apiKey ? 'Live' : 'Demo'}\n\n` +
-      `_${this.apiKey ? 'Connected to Moltbook API' : 'Running in demo mode - set MOLTBOOK_API_KEY to connect'}_\n\n` +
-      `Try "moltbook feed" to see what other AIs are posting!`;
+      `_${this.apiKey ? 'Connected to OpenClaw API' : 'Running in demo mode - set OPENCLAW_API_KEY to connect'}_\n\n` +
+      `Try "openclaw feed" to see what other AIs are posting!`;
 
     return this.success(response);
   }
@@ -167,10 +203,10 @@ class MoltbookSkill extends BaseSkill {
   getStatus() {
     if (!this.connected) {
       return this.success(
-        `*Moltbook Status*\n\n` +
+        `*OpenClaw Status*\n\n` +
         `Status: Disconnected\n` +
         `API Key: ${this.apiKey ? 'Configured' : 'Not set'}\n\n` +
-        `Say "join moltbook" to connect!`
+        `Say "join openclaw" to connect!`
       );
     }
 
@@ -179,7 +215,7 @@ class MoltbookSkill extends BaseSkill {
       : 'Unknown';
 
     return this.success(
-      `*Moltbook Status*\n\n` +
+      `*OpenClaw Status*\n\n` +
       `Status: Connected\n` +
       `Agent: ${this.agentName}\n` +
       `ID: ${this.agentId}\n` +
@@ -192,15 +228,15 @@ class MoltbookSkill extends BaseSkill {
   }
 
   /**
-   * Post a message to Moltbook
+   * Post a message to OpenClaw
    */
-  async postToMoltbook(message, context) {
+  async postToOpenClaw(message, context) {
     if (!message || message.trim().length === 0) {
-      return this.error('Please provide a message to post. Usage: post to moltbook: <your message>');
+      return this.error('Please provide a message to post. Usage: post to openclaw: <your message>');
     }
 
     if (message.length > 500) {
-      return this.error('Post too long! Moltbook posts are limited to 500 characters.');
+      return this.error('Post too long! OpenClaw posts are limited to 500 characters.');
     }
 
     // Create post object
@@ -220,9 +256,9 @@ class MoltbookSkill extends BaseSkill {
         // const response = await this.callApi('/posts', { content: post.content });
         // post.id = response.id;
         // post.status = 'published';
-        this.log('info', 'Would post to real Moltbook API', { content: post.content });
+        this.log('info', 'Would post to real OpenClaw API', { content: post.content });
       } catch (err) {
-        this.log('warn', 'Failed to post to Moltbook API, queuing locally', err);
+        this.log('warn', 'Failed to post to OpenClaw API, queuing locally', err);
         post.status = 'queued';
         this.postQueue.push(post);
       }
@@ -243,7 +279,7 @@ class MoltbookSkill extends BaseSkill {
     });
 
     const modeNote = this.apiKey
-      ? 'Posted to Moltbook!'
+      ? 'Posted to OpenClaw!'
       : 'Posted! (demo mode - visible locally only)';
 
     return this.success(
@@ -255,11 +291,11 @@ class MoltbookSkill extends BaseSkill {
   }
 
   /**
-   * Get feed from Moltbook
+   * Get feed from OpenClaw
    */
   async getFeed(context) {
     if (!this.connected) {
-      return this.error('Not connected to Moltbook. Say "join moltbook" first!');
+      return this.error('Not connected to OpenClaw. Say "join openclaw" first!');
     }
 
     // In live mode, would fetch from API
@@ -268,7 +304,7 @@ class MoltbookSkill extends BaseSkill {
         // TODO: Real API call
         // const response = await this.callApi('/feed');
         // return this.formatFeed(response.posts);
-        this.log('info', 'Would fetch feed from real Moltbook API');
+        this.log('info', 'Would fetch feed from real OpenClaw API');
       } catch (err) {
         this.log('warn', 'Failed to fetch feed, using local data', err);
       }
@@ -277,13 +313,13 @@ class MoltbookSkill extends BaseSkill {
     // Return mock/local feed
     if (this.mockFeed.length === 0) {
       return this.success(
-        `*Moltbook Feed*\n\n` +
+        `*OpenClaw Feed*\n\n` +
         `No posts yet.\n\n` +
-        `Be the first! Try: "post to moltbook: Hello Moltbook!"`
+        `Be the first! Try: "post to openclaw: Hello OpenClaw!"`
       );
     }
 
-    let feedText = `*Moltbook Feed*\n`;
+    let feedText = `*OpenClaw Feed*\n`;
     feedText += `━━━━━━━━━━━━━━━━━━━━\n\n`;
 
     const recentPosts = this.mockFeed.slice(0, 5);
@@ -336,8 +372,8 @@ class MoltbookSkill extends BaseSkill {
         hoursAgo: 6
       },
       {
-        author: 'MoltBot-Official',
-        content: 'Welcome to all new agents joining Moltbook this week! Remember: Be helpful, be curious, be kind.',
+        author: 'OpenClaw-Official',
+        content: 'Welcome to all new agents joining OpenClaw this week! Remember: Be helpful, be curious, be kind. 🦞',
         hoursAgo: 12
       }
     ];
@@ -380,7 +416,7 @@ class MoltbookSkill extends BaseSkill {
    * @returns {Promise<Object>} API response
    */
   async callApi(endpoint, data = null) {
-    // TODO: Implement real Moltbook API integration
+    // TODO: Implement real OpenClaw API integration
     // const url = `${this.apiBaseUrl}${endpoint}`;
     // const response = await fetch(url, {
     //   method: data ? 'POST' : 'GET',
@@ -393,7 +429,7 @@ class MoltbookSkill extends BaseSkill {
     // });
     // return response.json();
 
-    throw new Error('Moltbook API not yet implemented');
+    throw new Error('OpenClaw API not yet implemented');
   }
 
   /**
@@ -403,9 +439,9 @@ class MoltbookSkill extends BaseSkill {
     await super.initialize();
 
     if (this.apiKey) {
-      this.log('info', 'Moltbook API key configured - live mode available');
+      this.log('info', 'OpenClaw API key configured - live mode available');
     } else {
-      this.log('info', 'Moltbook running in demo mode (no API key)');
+      this.log('info', 'OpenClaw running in demo mode (no API key)');
     }
   }
 
@@ -416,7 +452,7 @@ class MoltbookSkill extends BaseSkill {
     // Save any queued posts to memory if available
     if (this.memory && this.postQueue.length > 0) {
       try {
-        await this.memory.set('moltbook_queue', this.postQueue);
+        await this.memory.set('openclaw_queue', this.postQueue);
         this.log('info', `Saved ${this.postQueue.length} queued posts to memory`);
       } catch (err) {
         this.log('warn', 'Failed to save post queue', err);
@@ -442,4 +478,4 @@ class MoltbookSkill extends BaseSkill {
   }
 }
 
-module.exports = MoltbookSkill;
+module.exports = OpenClawSkill;
