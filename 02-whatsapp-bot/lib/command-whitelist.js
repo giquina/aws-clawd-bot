@@ -13,10 +13,14 @@
 const KNOWN_PROJECTS = {
   'aws-clawd-bot': '/opt/clawd-bot',
   'clawd-bot': '/opt/clawd-bot',
+  'judo': '/opt/projects/JUDO',
   'giquina-website': '/opt/projects/giquina-website',
   'gq-cars': '/opt/projects/gq-cars',
   'giquina-portal': '/opt/projects/giquina-portal',
-  'moltbook': '/opt/projects/moltbook'
+  'moltbook': '/opt/projects/moltbook',
+  'lusotown': '/opt/projects/LusoTown',
+  'armora': '/opt/projects/armora',
+  'gqcars-manager': '/opt/projects/gqcars-manager'
 };
 
 /**

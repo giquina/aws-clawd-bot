@@ -96,12 +96,12 @@ class RemoteExecSkill extends BaseSkill {
       usage: 'remote commands'
     },
     {
-      pattern: /^vercel\s+deploy\s+(\S+)$/i,
+      pattern: /^vercel\s+deploy(\s+\S+)?$/i,
       description: 'Deploy project to Vercel production',
       usage: 'vercel deploy <repo>'
     },
     {
-      pattern: /^vercel\s+preview\s+(\S+)$/i,
+      pattern: /^vercel\s+preview(\s+\S+)?$/i,
       description: 'Deploy project to Vercel preview',
       usage: 'vercel preview <repo>'
     },
@@ -164,15 +164,19 @@ class RemoteExecSkill extends BaseSkill {
       }
 
       // Vercel deploy (production)
-      if (/^vercel\s+deploy\s+(\S+)$/i.test(raw)) {
-        const match = raw.match(/^vercel\s+deploy\s+(\S+)$/i);
-        return await this.vercelDeploy(match[1], true, context);
+      if (/^vercel\s+deploy(\s+(\S+))?$/i.test(raw)) {
+        const match = raw.match(/^vercel\s+deploy(\s+(\S+))?$/i);
+        const repo = match[2] || this.getRepoFromContext(context);
+        if (!repo) return this.error('Which project? Say: vercel deploy <repo>');
+        return await this.vercelDeploy(repo, true, context);
       }
 
       // Vercel preview
-      if (/^vercel\s+preview\s+(\S+)$/i.test(raw)) {
-        const match = raw.match(/^vercel\s+preview\s+(\S+)$/i);
-        return await this.vercelDeploy(match[1], false, context);
+      if (/^vercel\s+preview(\s+(\S+))?$/i.test(raw)) {
+        const match = raw.match(/^vercel\s+preview(\s+(\S+))?$/i);
+        const repo = match[2] || this.getRepoFromContext(context);
+        if (!repo) return this.error('Which project? Say: vercel preview <repo>');
+        return await this.vercelDeploy(repo, false, context);
       }
 
       // Generic exec
@@ -896,6 +900,19 @@ class RemoteExecSkill extends BaseSkill {
         pendingConfirmations.delete(id);
       }
     }
+  }
+
+  /**
+   * Extract repo name from context (auto-repo or active project)
+   */
+  getRepoFromContext(context) {
+    if (context?.autoRepo) return context.autoRepo;
+    if (context?.activeProject) {
+      // activeProject can be "owner/repo" or just "repo"
+      const parts = String(context.activeProject).split('/');
+      return parts[parts.length - 1];
+    }
+    return null;
   }
 
   // ============ Helper Methods ============

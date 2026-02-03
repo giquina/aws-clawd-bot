@@ -275,6 +275,11 @@ class SmartRouter {
       { match: /vercel\s+deploy\s+(\S+)/i, command: (m) => `vercel deploy ${m[1].trim()}` },
       { match: /push\s+(\S+)\s+to\s+vercel/i, command: (m) => `vercel deploy ${m[1].trim()}` },
       { match: /preview\s+(\S+)\s+on\s+vercel/i, command: (m) => `vercel preview ${m[1].trim()}` },
+      // Without repo name — uses auto-context
+      { match: /^deploy\s+to\s+vercel/i, command: 'vercel deploy' },
+      { match: /^vercel\s+deploy$/i, command: 'vercel deploy' },
+      { match: /^push\s+to\s+vercel/i, command: 'vercel deploy' },
+      { match: /^deploy\s+(?:this|it)\s+to\s+vercel/i, command: 'vercel deploy' },
 
       // === VOICE COMMANDS ===
       { match: /what\s+(do\s+i\s+)?need\s+to\s+do\s+(for\s+)?(.+)?/i, command: (m) => m[3] ? `project status ${m[3].trim()}` : 'project status' },
