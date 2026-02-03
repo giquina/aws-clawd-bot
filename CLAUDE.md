@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ClawdBot v2.3 is a **Claude Code Agent** running 24/7 on AWS EC2, controllable via **Telegram (primary)**, WhatsApp (backup), or **Voice calls (critical)**. It's a full development assistant - read any repo, parse TODOs, deploy code, run tests, and get proactive morning reports. Includes multi-AI routing (Groq FREE, Claude Opus/Sonnet, Grok), an autonomous agent system for nightly task execution, and smart alert escalation with voice calling for emergencies.
+ClawdBot v2.4 is a **Claude Code Agent** running 24/7 on AWS EC2, controllable via **Telegram (primary)**, WhatsApp (backup), or **Voice calls (critical)**. It's a full development assistant — voice/text instructions become real GitHub PRs, deploy to Vercel, run tests, and get proactive morning reports. Includes multi-AI routing (Groq FREE, Claude Opus/Sonnet, Grok, Perplexity), an autonomous agent system for nightly task execution, smart alert escalation with voice calling, and per-repo Telegram group management.
 
 **Platform Priority:** Telegram for all proactive messages. WhatsApp for critical alerts as backup. Voice calls for emergencies and unacknowledged critical alerts.
 
@@ -18,6 +18,7 @@ ClawdBot supports three communication channels with automatic routing:
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │    Telegram     │     │    WhatsApp     │     │     Voice       │
 │   (Primary)     │     │    (Backup)     │     │   (Critical)    │
+│ DM + Groups     │     │  Critical only  │     │  Emergency      │
 └────────┬────────┘     └────────┬────────┘     └────────┬────────┘
          │ Bot API              │ Twilio                │ Twilio Voice
          └──────────────────────┼───────────────────────┘
@@ -37,6 +38,7 @@ ClawdBot supports three communication channels with automatic routing:
               │     (lib/chat-registry.js)       │
               │                                  │
               │  • Per-chat context (repo/HQ)   │
+              │  • Telegram group auto-register │
               │  • Notification levels          │
               │  • Auto-routing for alerts      │
               └──────────────────────────────────┘
@@ -67,13 +69,9 @@ npm run dev                    # Development with nodemon auto-reload
 npm start                      # Production mode
 curl localhost:3000/health     # Health check
 
-# Testing
-npm test                       # Run bot tests
-
 # Security
 npm run audit                  # Check for vulnerabilities
 npm run audit:fix              # Auto-fix vulnerabilities
-npm run security-check         # Audit with high severity threshold
 
 # Deploy to AWS EC2 (quick)
 scp -i ~/.ssh/clawd-bot-key.pem 02-whatsapp-bot/index.js ubuntu@16.171.150.151:/opt/clawd-bot/02-whatsapp-bot/
@@ -296,11 +294,48 @@ chat stats                         → Registration statistics
 | `critical` | Only failures, errors, urgent items |
 | `digest` | Daily summary only |
 
+### Telegram Group Auto-Registration
+
+When @GiquinaBot is added to a Telegram group:
+1. Bot detects the `my_chat_member` event
+2. Checks if the user who added it is authorized (leaves if not)
+3. Fuzzy-matches the group title against GitHub repo names
+4. Auto-registers the group in chat-registry for the matched repo
+5. Sends a welcome message with the repo context
+
+This enables **per-repo Telegram groups** — create a group named after your repo (e.g. "Judo", "LusoTown"), add the bot, and it auto-binds. All messages in that group are scoped to that repo.
+
 ### Auto-Context Benefits
 When a chat is registered for a repo:
 - No need to say "switch to <repo>" - commands auto-target the registered repo
 - GitHub webhooks route to the correct chat
 - "project status" shows that repo automatically
+
+## Voice-to-PR Pipeline (`lib/plan-executor.js`)
+
+End-to-end pipeline: voice/text instruction → AI plan → confirmed → real GitHub PR.
+
+```
+Voice Note / Text Instruction
+    ↓
+Groq Whisper Transcription (FREE, forced English)
+    ↓
+Claude Opus: Generate plan with steps
+    ↓
+User reviews plan on Telegram → confirms
+    ↓
+Plan Executor (lib/plan-executor.js):
+  1. Claude → structured JSON file operations
+  2. Read reference files from GitHub repos
+  3. Generate code with Claude (full context)
+  4. Create branch → commit all files → open PR
+    ↓
+Bot sends PR URL back on Telegram
+```
+
+**Voice Flow Processor** (`lib/voice-flow.js`) handles the complete pipeline from voice note to execution without leaving Telegram/WhatsApp.
+
+**Smart Router Guards:** Coding instructions (add, make, fix, implement + component/UI context words) bypass the smart router and go directly to AI handler for natural language processing.
 
 ## HQ Commands (`skills/hq-commands/`)
 
@@ -380,20 +415,24 @@ ClawdBot includes an MCP server that lets you control it from Claude Desktop, Cl
 ## Architecture
 
 ```
-Telegram/WhatsApp → Express (index.js) → Hooks → Skills Router (35+ skills)
+Telegram/WhatsApp → Express (index.js) → Hooks → Skills Router (38 skills)
                                            ↓
                     ┌──────────────────────┼──────────────────────┐
                     ↓                      ↓                      ↓
               Smart Router           Error Alerter          Skill Registry
               (NLP → cmds)          (crash alerts)         (command routing)
+              Coding guard          (hooks/error-           Activity Log
+              (bypass for dev)       alerter.js)            (lib/activity-log.js)
                                            ↓
                                     AI Provider Router
-                    ┌──────────────────────┼──────────────────────┐
-                    ↓                      ↓                      ↓
-              Groq (FREE)           Claude (Tiered)         Grok (xAI)
-              Simple queries        Opus=Brain              Social/X search
-              Greetings            Sonnet=Coder             Real-time trends
-              Whisper (voice)
+                    ┌────────────┬────────┼────────┬────────────┐
+                    ↓            ↓        ↓        ↓            ↓
+              Groq (FREE)   Claude    Claude    Grok (xAI)  Perplexity
+              Simple/greet  Opus=Brain Sonnet   Social/X    Deep research
+              Whisper(voice) Planning  =Coder   Trends      w/ citations
+
+Voice/Text → Plan Executor (lib/plan-executor.js) → GitHub PRs
+             Voice Flow (lib/voice-flow.js)
 
 Scheduler (node-cron) → Jobs
                           ├── morning-brief.js      Daily briefings
@@ -436,10 +475,17 @@ ClawdBot uses smart AI routing to minimize costs:
 **Request Flow:**
 1. Webhook receives message (Telegram/WhatsApp)
 2. `messaging-platform.js` normalizes message format
-3. `hooks/smart-router.js` converts natural language to commands
+3. `hooks/smart-router.js` converts natural language to commands (coding instructions bypass to AI)
 4. `skills/skill-registry.js` routes to appropriate skill by priority
 5. Skill executes and returns response
 6. Response sent back via same platform
+
+**GitHub Webhook Flow:**
+1. GitHub sends event to `/github-webhook`
+2. Delivery ID checked against dedup cache (5-min window, prevents duplicate notifications)
+3. Event formatted by `github-webhook.js`
+4. Routed to registered Telegram groups/chats via chat-registry
+5. WhatsApp only receives CRITICAL alerts (preserves 50/day limit)
 
 **Key Design Patterns:**
 - Skills extend `BaseSkill` class with `name`, `commands[]`, `priority`, `execute()`
@@ -474,14 +520,17 @@ ClawdBot uses smart AI routing to minimize costs:
 | File | Purpose |
 |------|---------|
 | `02-whatsapp-bot/lib/messaging-platform.js` | Multi-platform abstraction layer |
-| `02-whatsapp-bot/lib/chat-registry.js` | Chat context registration and routing |
+| `02-whatsapp-bot/lib/chat-registry.js` | Chat context registration, Telegram group auto-register |
+| `02-whatsapp-bot/lib/plan-executor.js` | Voice/text plan → GitHub PR pipeline |
+| `02-whatsapp-bot/lib/voice-flow.js` | Voice note → transcribe → intent → execute → report |
+| `02-whatsapp-bot/lib/activity-log.js` | In-memory ring buffer (200 entries) for real-time diagnostics |
 | `02-whatsapp-bot/lib/action-controller.js` | Action lifecycle: propose -> confirm -> execute -> undo |
 | `02-whatsapp-bot/lib/alert-escalation.js` | Multi-tier alert escalation (Telegram->WhatsApp->Voice) |
 | `02-whatsapp-bot/lib/audit-logger.js` | Action and message audit logging (JSONL) |
 | `02-whatsapp-bot/lib/project-manager.js` | GitHub file fetching with 60-min cache |
 | `02-whatsapp-bot/lib/todo-parser.js` | Parses TODO.md (emoji + checkboxes) |
 | `02-whatsapp-bot/lib/active-project.js` | Per-user project context (2hr expiry) |
-| `02-whatsapp-bot/lib/command-whitelist.js` | Security for remote exec |
+| `02-whatsapp-bot/lib/command-whitelist.js` | Security for remote exec + Vercel deploy whitelist |
 | `02-whatsapp-bot/lib/project-intelligence.js` | The brain - project routing |
 | `02-whatsapp-bot/lib/intent-classifier.js` | AI intent understanding |
 | `02-whatsapp-bot/lib/action-executor.js` | Auto-execution with 7 handlers |
@@ -500,14 +549,19 @@ ClawdBot uses smart AI routing to minimize costs:
 | `02-whatsapp-bot/skills/project-context/index.js` | Project awareness, TODO parsing |
 | `02-whatsapp-bot/skills/remote-exec/index.js` | Safe EC2 command execution |
 
+### Hooks
+| File | Purpose |
+|------|---------|
+| `02-whatsapp-bot/hooks/smart-router.js` | NLP → command conversion (with coding instruction bypass) |
+| `02-whatsapp-bot/hooks/error-alerter.js` | Uncaught error alerting to Telegram/WhatsApp (5-min cooldown) |
+
 ### Other
 | File | Purpose |
 |------|---------|
-| `02-whatsapp-bot/hooks/smart-router.js` | NLP → command conversion |
 | `02-whatsapp-bot/autonomous/index.js` | Autonomous agent orchestrator |
 | `02-whatsapp-bot/mcp-server/index.js` | MCP server for Claude Desktop/App |
 | `config/project-registry.json` | 16 projects with capabilities |
-| `config/chat-registry.json` | Persisted chat registrations |
+| `config/chat-registry.json` | Persisted chat registrations (includes Telegram groups) |
 | `config/.env.local` | Environment variables (never modify via code) |
 
 ## Environment Variables
@@ -519,6 +573,8 @@ ANTHROPIC_API_KEY=sk-...        # Claude - required
 XAI_API_KEY=xai-...             # Grok - optional, for social search
 PERPLEXITY_API_KEY=pplx-...     # Perplexity - optional, for deep research
 CLAWDBOT_API_KEY=...            # API key for MCP/REST API access
+VERCEL_TOKEN=...                # Vercel CLI token for deployment
+GITHUB_TOKEN=ghp_...            # GitHub PAT for plan-executor PR creation
 ```
 
 ### Platform configuration:
@@ -592,7 +648,7 @@ Used by accountancy skills (deadlines, governance, intercompany):
 | GQCARS | GQ Cars Ltd | 15389347 |
 | GSPV | Giquina Structured Asset SPV Ltd | 16369465 |
 
-## Claude Code Agent System (v2.3)
+## Claude Code Agent System (v2.4)
 
 The bot functions as a full Claude Code agent controllable via Telegram/WhatsApp:
 
@@ -613,9 +669,13 @@ run tests <repo>            → npm test
 logs <repo>                 → PM2 logs
 restart <repo>              → pm2 restart
 build <repo>                → npm run build
+vercel deploy [repo]        → Deploy to Vercel production (with confirmation)
+vercel preview [repo]       → Deploy Vercel preview (no confirmation needed)
 remote status               → Show all PM2 processes
 remote commands             → List allowed commands
 ```
+
+Vercel deploy uses the `VERCEL_TOKEN` env var and runs `vercel --prod --token $TOKEN --yes` on EC2. The repo name is optional — falls back to the active project context or the group's registered repo.
 
 ### Auto-Execution Layer (`lib/`)
 
@@ -650,17 +710,20 @@ Endpoint: `POST /github-webhook`
 The smart router handles casual speech:
 - "what's left on judo" → `project status judo`
 - "deploy clawd to production" → `deploy aws-clawd-bot`
+- "deploy JUDO to vercel" → `vercel deploy judo`
 - "what should I work on" → `project status` (uses active project)
 - "file my taxes for GQCARS" → routes to accountancy project
-- "create a contact page for LusoTown" → generates code + PR
+- "add a bottom nav bar to JUDO like LusoTown" → AI plan → PR (voice-to-PR pipeline)
 
-## Skill Categories
+**Coding instructions** (add, make, fix, implement, style, etc. + component/UI context words) bypass the smart router entirely and go to the AI handler for natural language planning and execution.
+
+## Skill Categories (38 skills)
 
 | Category | Skills |
 |----------|--------|
 | **Control** | action-control (undo, pause, stop, explain) |
 | **Core** | help, memory, tasks, reminders |
-| **Claude Code Agent** | project-context, remote-exec |
+| **Claude Code Agent** | project-context, remote-exec (incl. Vercel deploy) |
 | **GitHub** | github, coder, review, stats, actions, multi-repo, project-creator |
 | **Accountancy** | deadlines, companies, governance, intercompany, receipts, moltbook |
 | **Media** | image-analysis, voice, voice-call, video, files |
@@ -669,6 +732,7 @@ The smart router handles casual speech:
 | **Research** | research, vercel |
 | **Chat/Platform** | chat-management, hq-commands |
 | **Config** | ai-settings, autonomous-config |
+| **Audit** | audit (action and message audit logging) |
 | **OpenClaw** | moltbook (openclaw status, feed, post) |
 
 ## Browser Skill (`skills/browser/`)
@@ -711,12 +775,18 @@ All actions are logged to `logs/audit/audit-YYYY-MM-DD.jsonl` for accountability
 ## Important Notes
 
 - **Telegram message limit:** 4096 characters (truncated automatically)
-- **WhatsApp message limit:** ~1600 characters (truncated automatically)
+- **WhatsApp message limit:** ~1600 chars, set to CRITICAL-only notifications (preserves 50/day limit)
 - **Skill priority:** Higher number = checked first (help=100, action-control=99, hq-commands=95)
-- **Authorization:** Check `TELEGRAM_AUTHORIZED_USERS` and `YOUR_WHATSAPP` env vars
+- **Authorization:** `TELEGRAM_AUTHORIZED_USERS` for DM, auto-authorized for registered groups
+- **Telegram groups:** Create a group named after your repo, add @GiquinaBot — auto-registers for that repo
 - **Skills auto-document:** AI handler reads from registry via `generateSkillDocs()`
-- **Voice messages:** Automatically transcribed via Groq Whisper (FREE)
+- **Voice messages:** Transcribed via Groq Whisper (FREE), forced English language
+- **Voice-to-PR:** Voice coding instructions → AI plan → confirm → GitHub PR (plan-executor.js)
+- **Smart router coding guard:** Coding instructions bypass smart router, go directly to AI handler
+- **Webhook dedup:** GitHub delivery IDs cached for 5 minutes to prevent duplicate notifications
+- **Vercel deploy:** Available via Telegram (`vercel deploy <repo>`) using VERCEL_TOKEN
 - **Autonomous mode:** Runs nightly, configurable via `autonomous-config` skill
 - **Alert escalation:** Configurable delays, DND hours, and bypass rules
-- **Chat registry:** Persists to `config/chat-registry.json`
+- **Chat registry:** Persists to `config/chat-registry.json` (includes Telegram group mappings)
 - **Audit logs:** Daily rotation, JSONL format, buffered writes
+- **Activity log:** In-memory ring buffer (200 entries) for real-time diagnostics via `lib/activity-log.js`
