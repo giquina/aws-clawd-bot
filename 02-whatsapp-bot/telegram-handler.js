@@ -122,7 +122,20 @@ class TelegramHandler {
             return false;
         }
 
+        // Allow registered group chats (negative IDs are groups)
+        if (this.authorizedGroups && this.authorizedGroups.has(userId)) {
+            return true;
+        }
+
         return authorizedUsers.includes(userId);
+    }
+
+    /**
+     * Authorize a group chat (called when bot is added to a group by an authorized user)
+     */
+    authorizeGroup(chatId) {
+        if (!this.authorizedGroups) this.authorizedGroups = new Set();
+        this.authorizedGroups.add(chatId.toString());
     }
 
     /**
@@ -147,6 +160,23 @@ class TelegramHandler {
             this.botInfo = await this.bot.telegram.getMe();
             console.log(`✅ Telegram bot verified: @${this.botInfo.username}`);
 
+            // Auto-authorize registered group chats from chat-registry
+            try {
+                const chatRegistry = require('./lib/chat-registry');
+                const allChats = chatRegistry.getAll();
+                for (const reg of allChats) {
+                    if (reg.platform === 'telegram' && String(reg.chatId).startsWith('-')) {
+                        this.authorizeGroup(reg.chatId);
+                    }
+                }
+                const groupCount = this.authorizedGroups ? this.authorizedGroups.size : 0;
+                if (groupCount > 0) {
+                    console.log(`[Telegram] Auto-authorized ${groupCount} registered group(s)`);
+                }
+            } catch (e) {
+                // chat-registry might not be loaded yet, that's fine
+            }
+
             // Set up message handlers if provided
             if (messageHandler) {
                 this.setupMessageHandlers(messageHandler);
@@ -157,7 +187,7 @@ class TelegramHandler {
                 const secret = process.env.TELEGRAM_WEBHOOK_SECRET || '';
                 await this.bot.telegram.setWebhook(webhookUrl, {
                     secret_token: secret || undefined,
-                    allowed_updates: ['message', 'edited_message', 'callback_query']
+                    allowed_updates: ['message', 'edited_message', 'callback_query', 'my_chat_member']
                 });
                 console.log(`✅ Telegram webhook set: ${webhookUrl}`);
             } else {
@@ -169,7 +199,7 @@ class TelegramHandler {
                 // Launch with error handling - bot.launch() returns a promise
                 this.bot.launch({
                     dropPendingUpdates: false,
-                    allowedUpdates: ['message', 'edited_message', 'callback_query']
+                    allowedUpdates: ['message', 'edited_message', 'callback_query', 'my_chat_member']
                 }).then(() => {
                     console.log('✅ Telegram long-polling started successfully');
                 }).catch(err => {
@@ -233,6 +263,84 @@ class TelegramHandler {
         // Handle video messages
         this.bot.on('video', async (ctx) => {
             await this.handleIncomingMessage(ctx, messageHandler, 'video');
+        });
+
+        // Handle bot being added to a group — auto-register for repo
+        this.bot.on('my_chat_member', async (ctx) => {
+            try {
+                const update = ctx.myChatMember;
+                const newStatus = update.new_chat_member?.status;
+                const oldStatus = update.old_chat_member?.status;
+                const chat = update.chat;
+                const addedBy = update.from;
+
+                // Only act when bot goes from non-member to member/admin
+                if ((oldStatus === 'left' || oldStatus === 'kicked') &&
+                    (newStatus === 'member' || newStatus === 'administrator')) {
+
+                    // Check if the person who added the bot is authorized
+                    const addedByAuthorized = this.isAuthorized(addedBy.id);
+                    if (!addedByAuthorized) {
+                        console.log(`[Telegram] Bot added to group ${chat.id} by unauthorized user ${addedBy.id}, leaving`);
+                        try { await ctx.leaveChat(); } catch (e) { /* ignore */ }
+                        return;
+                    }
+
+                    const groupTitle = chat.title || '';
+                    const chatId = chat.id.toString();
+                    console.log(`[Telegram] Bot added to group: "${groupTitle}" (${chatId}) by ${addedBy.first_name}`);
+
+                    // Authorize this group
+                    this.authorizeGroup(chatId);
+
+                    // Try to match group title to a repo
+                    const chatRegistry = require('./lib/chat-registry');
+                    const projectManager = require('./lib/project-manager');
+
+                    let matchedRepo = null;
+                    try {
+                        const repos = await projectManager.listRepos();
+                        const titleLower = groupTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+                        for (const repo of repos) {
+                            const repoLower = repo.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                            if (titleLower.includes(repoLower) || repoLower.includes(titleLower)) {
+                                matchedRepo = repo.name;
+                                break;
+                            }
+                        }
+                    } catch (e) {
+                        console.error('[Telegram] Failed to match repo:', e.message);
+                    }
+
+                    if (matchedRepo) {
+                        // Auto-register this group for the matched repo
+                        chatRegistry.registerChat(chatId, 'repo', matchedRepo, {
+                            platform: 'telegram',
+                            name: groupTitle,
+                            notificationLevel: 'all'
+                        });
+                        console.log(`[Telegram] Auto-registered group "${groupTitle}" for repo: ${matchedRepo}`);
+                        await this.sendMessage(chatId,
+                            `Registered for *${matchedRepo}*\n\n` +
+                            `All commands in this group will auto-target ${matchedRepo}.\n` +
+                            `GitHub notifications for this repo will appear here.\n\n` +
+                            `Try: "project status" or "what's left"`
+                        );
+                    } else {
+                        // Couldn't match — send welcome with instructions
+                        console.log(`[Telegram] Group "${groupTitle}" — no repo match found`);
+                        await this.sendMessage(chatId,
+                            `Added to *${groupTitle}*\n\n` +
+                            `I couldn't detect which repo this group is for.\n` +
+                            `Register it manually:\n` +
+                            `\`register chat for <repo-name>\`\n\n` +
+                            `Or type \`my repos\` to see available repositories.`
+                        );
+                    }
+                }
+            } catch (err) {
+                console.error('[Telegram] my_chat_member handler error:', err.message);
+            }
         });
 
         console.log('✅ Telegram message handlers configured');
