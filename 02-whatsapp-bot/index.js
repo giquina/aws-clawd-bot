@@ -909,9 +909,13 @@ async function processMessageForTelegram(incomingMsg, context) {
             }
         }
 
+        // For voice messages, use __voice__ trigger so voice skill handles it
+        const isVoiceMessage = mediaContentType && mediaContentType.startsWith('audio/');
+        let processedMsg = isVoiceMessage ? '__voice__' : incomingMsg;
+
         // RUN HOOKS (smart router converts natural language to commands)
-        let processedMsg = incomingMsg;
-        if (hooks) {
+        // Skip hooks for voice - the voice skill handles transcription
+        if (hooks && !isVoiceMessage) {
             const hookContext = {
                 userId,
                 chatId,
