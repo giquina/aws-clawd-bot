@@ -1,5 +1,8 @@
 // Morning Brief Job Handler
 // Generates a morning summary with tasks, overnight activity, and greeting
+// Also sends repo-specific briefs to registered Telegram groups
+
+const path = require('path');
 
 /**
  * Generate a morning brief message
@@ -179,10 +182,161 @@ function getClosingMessage(now) {
     return messages[index];
 }
 
+// ==================== Repo-Specific Group Briefs ====================
+
+/**
+ * Resolve a repo name (e.g. "judo") to its full GitHub name (e.g. "giquina/JUDO")
+ * Uses the project registry to look up the mapping
+ * @param {string} repoName - Short repo name from chat registry
+ * @returns {string|null} Full repo name (owner/repo) or null
+ */
+function resolveRepoFullName(repoName) {
+    try {
+        const registryPath = path.join(__dirname, '..', '..', '..', 'config', 'project-registry.json');
+        const registry = require(registryPath);
+        const normalizedName = repoName.toLowerCase();
+
+        // Search through projects for a match
+        for (const [key, project] of Object.entries(registry.projects || {})) {
+            if (key.toLowerCase() === normalizedName) {
+                return project.repo;
+            }
+            // Also check if the repo field contains the name
+            if (project.repo && project.repo.toLowerCase().endsWith('/' + normalizedName)) {
+                return project.repo;
+            }
+        }
+
+        // Fallback: assume giquina org
+        return `giquina/${repoName}`;
+    } catch (err) {
+        console.log(`[MorningBrief] Failed to resolve repo name "${repoName}":`, err.message);
+        return `giquina/${repoName}`;
+    }
+}
+
+/**
+ * Fetch GitHub status for a single repository
+ * @param {string} repoName - Short repo name (e.g. "judo")
+ * @returns {Promise<Object|null>} Repo status object or null on failure
+ */
+async function getRepoStatus(repoName) {
+    try {
+        const projectManager = require('../../lib/project-manager');
+        const repoFullName = resolveRepoFullName(repoName);
+
+        if (!repoFullName) return null;
+
+        // Fetch all three metrics in parallel
+        const [openPRs, recentCommits, openIssuesCount] = await Promise.all([
+            projectManager.getOpenPRs(repoFullName),
+            projectManager.getRecentCommits(repoFullName, 24),
+            projectManager.getOpenIssuesCount(repoFullName)
+        ]);
+
+        return {
+            repoFullName,
+            openPRs,
+            openPRsCount: openPRs.length,
+            recentCommitsCount: recentCommits.length,
+            openIssuesCount
+        };
+    } catch (err) {
+        console.log(`[MorningBrief] Failed to get status for ${repoName}:`, err.message);
+        return null;
+    }
+}
+
+/**
+ * Format a repo-specific morning brief message
+ * @param {string} repoName - Short repo name
+ * @param {Object} status - Repo status from getRepoStatus()
+ * @returns {string} Formatted brief message
+ */
+function formatRepoBrief(repoName, status) {
+    if (!status) return null;
+
+    const displayName = repoName.toUpperCase();
+    let brief = `Morning Brief -- ${displayName}\n\n`;
+    brief += `Open PRs: ${status.openPRsCount}\n`;
+    brief += `Commits (24h): ${status.recentCommitsCount}\n`;
+    brief += `Open Issues: ${status.openIssuesCount}\n`;
+
+    // List open PRs if any
+    if (status.openPRs && status.openPRs.length > 0) {
+        brief += `\nOpen PRs:\n`;
+        status.openPRs.slice(0, 5).forEach(pr => {
+            brief += `  #${pr.number} ${pr.title}\n`;
+        });
+    }
+
+    brief += `\nHave a productive day!`;
+
+    return brief;
+}
+
+/**
+ * Send repo-specific morning briefs to registered Telegram groups
+ * Called after the HQ brief is sent. Each registered repo group gets
+ * a tailored brief with that repo's GitHub stats.
+ * @returns {Promise<number>} Number of group briefs sent
+ */
+async function sendGroupBriefs() {
+    let sentCount = 0;
+
+    try {
+        const chatRegistry = require('../../lib/chat-registry');
+        const { getTelegramHandler } = require('../../telegram-handler');
+        const telegram = getTelegramHandler();
+
+        if (!telegram || !telegram.isAvailable()) {
+            console.log('[MorningBrief] Telegram not available, skipping group briefs');
+            return 0;
+        }
+
+        const allChats = chatRegistry.getAll();
+        // Filter for repo-type Telegram chats
+        const repoChats = allChats.filter(
+            chat => chat.type === 'repo' && chat.platform === 'telegram' && chat.value
+        );
+
+        if (repoChats.length === 0) {
+            console.log('[MorningBrief] No repo groups registered, skipping group briefs');
+            return 0;
+        }
+
+        console.log(`[MorningBrief] Sending briefs to ${repoChats.length} repo group(s)`);
+
+        for (const chat of repoChats) {
+            try {
+                const repoStatus = await getRepoStatus(chat.value);
+                if (repoStatus) {
+                    const brief = formatRepoBrief(chat.value, repoStatus);
+                    if (brief) {
+                        await telegram.sendMessage(chat.chatId, brief);
+                        sentCount++;
+                        console.log(`[MorningBrief] Sent brief to ${chat.value} group (${chat.chatId})`);
+                    }
+                }
+            } catch (err) {
+                console.log(`[MorningBrief] Failed for ${chat.value}:`, err.message);
+            }
+        }
+    } catch (err) {
+        console.log('[MorningBrief] Group briefs failed:', err.message);
+    }
+
+    return sentCount;
+}
+
 module.exports = {
     generate,
     getGreeting,
     getPendingTasksSummary,
     getQuickStats,
-    getClosingMessage
+    getClosingMessage,
+    getRepoStatus,
+    formatRepoBrief,
+    sendGroupBriefs,
+    resolveRepoFullName
 };

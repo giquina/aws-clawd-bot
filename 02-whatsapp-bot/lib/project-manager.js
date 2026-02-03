@@ -286,6 +286,85 @@ async function searchRepos(username, query) {
 }
 
 /**
+ * Get open pull requests for a repository
+ * @param {string} repoFullName - Full repo name like "giquina/JUDO"
+ * @returns {Promise<Array>} Array of PR objects
+ */
+async function getOpenPRs(repoFullName) {
+  try {
+    const [owner, repo] = repoFullName.split('/');
+    const { data } = await octokit.pulls.list({
+      owner,
+      repo,
+      state: 'open',
+      per_page: 10
+    });
+    return data.map(pr => ({
+      number: pr.number,
+      title: pr.title,
+      author: pr.user.login,
+      created_at: pr.created_at,
+      url: pr.html_url
+    }));
+  } catch (err) {
+    console.error(`[ProjectManager] Failed to get PRs for ${repoFullName}:`, err.message);
+    return [];
+  }
+}
+
+/**
+ * Get recent commits for a repository (within a time window)
+ * @param {string} repoFullName - Full repo name like "giquina/JUDO"
+ * @param {number} hoursAgo - Number of hours to look back (default: 24)
+ * @returns {Promise<Array>} Array of commit objects
+ */
+async function getRecentCommits(repoFullName, hoursAgo = 24) {
+  try {
+    const [owner, repo] = repoFullName.split('/');
+    const since = new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
+    const { data } = await octokit.repos.listCommits({
+      owner,
+      repo,
+      since,
+      per_page: 50
+    });
+    return data.map(c => ({
+      sha: c.sha.substring(0, 7),
+      message: c.commit.message.split('\n')[0],
+      author: c.commit.author.name,
+      date: c.commit.author.date
+    }));
+  } catch (err) {
+    console.error(`[ProjectManager] Failed to get commits for ${repoFullName}:`, err.message);
+    return [];
+  }
+}
+
+/**
+ * Get open issues count for a repository
+ * @param {string} repoFullName - Full repo name like "giquina/JUDO"
+ * @returns {Promise<number>} Number of open issues
+ */
+async function getOpenIssuesCount(repoFullName) {
+  try {
+    const [owner, repo] = repoFullName.split('/');
+    const { data } = await octokit.issues.listForRepo({
+      owner,
+      repo,
+      state: 'open',
+      per_page: 1
+    });
+    // The response headers contain the total count, but for simplicity
+    // we make a lightweight request. Use the repo endpoint for accurate count.
+    const repoData = await octokit.repos.get({ owner, repo });
+    return repoData.data.open_issues_count || 0;
+  } catch (err) {
+    console.error(`[ProjectManager] Failed to get issues for ${repoFullName}:`, err.message);
+    return 0;
+  }
+}
+
+/**
  * Invalidate a specific cache entry
  * @param {string} key - Cache key to invalidate
  * @returns {boolean} True if entry was removed
@@ -318,5 +397,8 @@ module.exports = {
   searchRepos,
   fuzzyMatchRepo,
   invalidateCache,
-  clearCache
+  clearCache,
+  getOpenPRs,
+  getRecentCommits,
+  getOpenIssuesCount
 };

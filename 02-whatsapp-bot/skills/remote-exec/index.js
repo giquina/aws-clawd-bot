@@ -26,6 +26,7 @@ const { exec } = require('child_process');
 const { promisify } = require('util');
 const fs = require('fs').promises;
 const path = require('path');
+const db = require('../../lib/database');
 
 const execAsync = promisify(exec);
 
@@ -106,6 +107,11 @@ class RemoteExecSkill extends BaseSkill {
       usage: 'vercel preview <repo>'
     },
     {
+      pattern: /^(vercel\s+url|deployment\s+url|where.*deployed|live\s+url|site\s+url)(\s+\S+)?$/i,
+      description: 'Get deployment URL',
+      usage: 'vercel url [repo]'
+    },
+    {
       pattern: /^confirm\s+(\S+)$/i,
       description: 'Confirm a pending operation',
       usage: 'confirm <id>'
@@ -177,6 +183,14 @@ class RemoteExecSkill extends BaseSkill {
         const repo = match[2] || this.getRepoFromContext(context);
         if (!repo) return this.error('Which project? Say: vercel preview <repo>');
         return await this.vercelDeploy(repo, false, context);
+      }
+
+      // Deployment URL lookup
+      if (/^(vercel\s+url|deployment\s+url|where.*deployed|live\s+url|site\s+url)(\s+\S+)?$/i.test(raw)) {
+        const match = raw.match(/^(vercel\s+url|deployment\s+url|where.*deployed|live\s+url|site\s+url)(\s+(\S+))?$/i);
+        const repo = match[3] || this.getRepoFromContext(context);
+        if (!repo) return this.error('Which project? Say: vercel url <repo>');
+        return this.getDeploymentUrl(repo, context);
       }
 
       // Generic exec
@@ -444,6 +458,15 @@ class RemoteExecSkill extends BaseSkill {
       response += `⏱️ Completed in ${duration}s\n`;
       response += `\n\`\`\`\n${this.truncateOutput(result.output, 1500)}\n\`\`\``;
 
+      // Save deployment to database
+      db.saveDeployment(repo, {
+        platform: isProduction ? 'vercel-prod' : 'vercel-preview',
+        url: deployUrl,
+        status: 'completed',
+        triggeredBy: context?.userId || 'manual',
+        chatId: context?.chatId || null
+      });
+
       this.logAudit('vercel-deploy', repo, 'success', context);
       return this.success(response);
     } else {
@@ -451,9 +474,48 @@ class RemoteExecSkill extends BaseSkill {
       response += `⏱️ Duration: ${duration}s\n`;
       response += `\n\`\`\`\n${this.truncateOutput(result.error, 2000)}\n\`\`\``;
 
+      // Save failed deployment to database
+      db.saveDeployment(repo, {
+        platform: isProduction ? 'vercel-prod' : 'vercel-preview',
+        url: null,
+        status: 'failed',
+        triggeredBy: context?.userId || 'manual',
+        chatId: context?.chatId || null
+      });
+
       this.logAudit('vercel-deploy', repo, 'failed', context);
       return this.error(response);
     }
+  }
+
+  /**
+   * Get the last deployment URL for a project
+   */
+  getDeploymentUrl(repoName, context) {
+    const repo = sanitizeArgument(repoName);
+
+    // Try production first, then any platform
+    const lastDeploy = db.getLastDeployment(repo, 'vercel-prod') || db.getLastDeployment(repo);
+
+    if (lastDeploy && lastDeploy.url) {
+      let response = `🌐 *${repo}* is live at:\n${lastDeploy.url}\n\n`;
+      response += `Platform: ${lastDeploy.platform}\n`;
+      response += `Deployed: ${new Date(lastDeploy.created_at).toLocaleString()}`;
+
+      // Show recent history
+      const history = db.getDeploymentHistory(repo, 3);
+      if (history.length > 1) {
+        response += `\n\n📋 *Recent deployments:*`;
+        for (const dep of history) {
+          const status = dep.status === 'completed' ? '✅' : '❌';
+          response += `\n${status} ${dep.platform} - ${new Date(dep.created_at).toLocaleString()}`;
+        }
+      }
+
+      return this.success(response);
+    }
+
+    return this.error(`No deployment found for ${repo}. Try: vercel deploy ${repo}`);
   }
 
   /**

@@ -404,7 +404,7 @@ class AIHandler {
 
         return `Hey! 👋 Good ${timeGreeting}!
 
-I'm ClawdBot - your coding buddy on WhatsApp 🤖
+I'm ClawdBot - your AI coding assistant 🤖
 
 Now with MULTI-AI: I use the best AI for each task!
 • Simple questions → FREE (Groq)
@@ -418,7 +418,8 @@ Try "help" to see what I can do! 💬`;
     /**
      * Process a user query with smart AI routing
      * @param {string} query - The user's question or command
-     * @param {Object} context - Optional context (userId, etc.)
+     * @param {Object} context - Optional context (userId, conversationHistory, etc.)
+     * @param {Array<{role: string, content: string}>} [context.conversationHistory] - Persistent conversation history from memory DB
      * @returns {Promise<string>} - AI response
      */
     async processQuery(query, context = {}) {
@@ -426,7 +427,13 @@ Try "help" to see what I can do! 💬`;
             // Initialize providers on first use
             await this.initProviders();
 
-            // Add query to conversation history (only if non-empty)
+            // Use persistent conversation history if provided, otherwise fall back to in-memory
+            const hasPersistentHistory = context.conversationHistory && context.conversationHistory.length > 0;
+            const historyForProvider = hasPersistentHistory
+                ? context.conversationHistory
+                : this.conversationHistory.slice(); // copy of in-memory history
+
+            // Add query to in-memory conversation history (only if non-empty)
             if (query && query.trim()) {
                 this.conversationHistory.push({
                     role: 'user',
@@ -478,7 +485,7 @@ Try "help" to see what I can do! 💬`;
                     const result = await providerRegistry.processQuery(query, {
                         ...context,
                         taskType,
-                        history: this.conversationHistory.slice(0, -1), // Exclude current query
+                        history: historyForProvider, // Use persistent history when available
                         systemPrompt: systemPrompt,
                         skillDocs: this.getDynamicSkillDocs(),
                         projectContext: projectContext // Pass to provider for potential use
@@ -490,7 +497,8 @@ Try "help" to see what I can do! 💬`;
                     // Log which AI was used
                     const tierInfo = result.tier ? ` (${result.tier})` : '';
                     const projectInfo = projectContext ? ` [ctx: ${projectContext.repo}]` : '';
-                    console.log(`[AI Handler] Response from ${providerUsed}${tierInfo}${projectInfo}: ${result.tokens || 0} tokens`);
+                    const historyInfo = hasPersistentHistory ? ` [history: ${historyForProvider.length} msgs]` : '';
+                    console.log(`[AI Handler] Response from ${providerUsed}${tierInfo}${projectInfo}${historyInfo}: ${result.tokens || 0} tokens`);
 
                     // Add correction notice if spelling was fixed
                     if (result.correctedQuery && result.correctedQuery !== query) {
@@ -553,7 +561,7 @@ Try "help" to see what I can do! 💬`;
         // Format project context if available
         const projectSection = projectContext ? this.formatProjectContext(projectContext) : '';
 
-        return `You are ClawdBot, a powerful AI assistant running as a WhatsApp bot. You have REAL integrations and capabilities - you're not just a chatbot.
+        return `You are ClawdBot, a powerful AI coding assistant running on Telegram and WhatsApp. You have REAL integrations and capabilities - you're not just a chatbot.
 ${projectSection}
 
 YOUR ACTUAL CAPABILITIES:
@@ -656,7 +664,7 @@ ${this.getDynamicSkillDocs()}
 HOW TO TALK:
 - Casual and friendly, like texting a friend
 - Use emojis sparingly 🎯
-- Keep responses SHORT (max ~100 words) - this is WhatsApp
+- Keep responses SHORT (max ~100 words) - this is a messaging app
 - Simple language, explain technical stuff clearly
 - Be helpful and encouraging
 

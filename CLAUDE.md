@@ -73,11 +73,15 @@ curl localhost:3000/health     # Health check
 npm run audit                  # Check for vulnerabilities
 npm run audit:fix              # Auto-fix vulnerabilities
 
-# Deploy to AWS EC2 (quick)
+# Deploy to AWS EC2 (preferred — git pull)
+./deploy.sh              # Quick: git pull + restart
+./deploy.sh full         # Full: git pull + npm install + rebuild + restart
+
+# Deploy to AWS EC2 (legacy tar — use only if git is broken)
 scp -i ~/.ssh/clawd-bot-key.pem 02-whatsapp-bot/index.js ubuntu@16.171.150.151:/opt/clawd-bot/02-whatsapp-bot/
 ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 "pm2 restart clawd-bot"
 
-# Deploy to AWS EC2 (full)
+# Deploy to AWS EC2 (legacy tar full — use only if git is broken)
 tar -czvf /tmp/clawd-bot.tar.gz --exclude='node_modules' --exclude='.git' --exclude='.next' --exclude='config/chat-registry.json' --exclude='config/.env.local' .
 scp -i ~/.ssh/clawd-bot-key.pem /tmp/clawd-bot.tar.gz ubuntu@16.171.150.151:/tmp/
 ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 \

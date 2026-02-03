@@ -273,13 +273,26 @@ class Scheduler {
     // ==================== Built-in Job Handlers ====================
 
     /**
-     * Morning brief handler - sends daily summary
+     * Morning brief handler - sends daily summary to HQ,
+     * then sends repo-specific briefs to registered Telegram groups
      * @param {Object} params - Job parameters
-     * @returns {Promise<string>} Message to send
+     * @returns {Promise<string>} Message to send (HQ brief)
      */
     async handleMorningBrief(params = {}) {
         const morningBrief = require('./jobs/morning-brief');
-        return morningBrief.generate(this.db, params);
+        const hqBrief = await morningBrief.generate(this.db, params);
+
+        // Send repo-specific briefs to registered Telegram groups (non-blocking)
+        // This runs after the HQ brief is returned and sent by the scheduler
+        morningBrief.sendGroupBriefs().then(count => {
+            if (count > 0) {
+                console.log(`[Scheduler] Sent ${count} repo group brief(s)`);
+            }
+        }).catch(err => {
+            console.log('[Scheduler] Group briefs error:', err.message);
+        });
+
+        return hqBrief;
     }
 
     /**

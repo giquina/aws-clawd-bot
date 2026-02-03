@@ -779,6 +779,27 @@ app.post('/github-webhook', async (req, res) => {
             console.log(`[GitHub Webhook] Event ignored: ${eventType}/${req.body.action || 'no-action'}`);
         }
 
+        // Auto-deploy suggestion on PR merge
+        if (eventType === 'pull_request' && req.body.action === 'closed' && req.body.pull_request?.merged) {
+            const mergedRepo = req.body.repository?.name;
+            const targetChat = chatRegistry.getChatForRepo(mergedRepo);
+
+            if (targetChat && mergedRepo) {
+                const prTitle = req.body.pull_request.title;
+                try {
+                    const telegram = getTelegramHandler();
+                    if (telegram?.isAvailable()) {
+                        await telegram.sendMessage(targetChat,
+                            `✅ PR merged: *${prTitle}*\n\nWould you like me to deploy *${mergedRepo}* to Vercel? Reply "deploy to vercel" to deploy.`
+                        );
+                        console.log(`[GitHub Webhook] Auto-deploy suggestion sent for ${mergedRepo}`);
+                    }
+                } catch (autoDeployErr) {
+                    console.error('[GitHub Webhook] Auto-deploy suggestion error:', autoDeployErr.message);
+                }
+            }
+        }
+
         // Always respond 200 to GitHub
         res.status(200).json({
             received: true,
@@ -1001,9 +1022,13 @@ async function processMessageForTelegram(incomingMsg, context) {
             { userId, platform, hasMedia: !!mediaUrl }
         );
 
-        // Save incoming message to memory
-        if (memory) {
-            memory.saveMessage(userId, 'user', incomingMsg);
+        // Save incoming message to memory (skip empty messages like voice before transcription)
+        if (memory && incomingMsg && incomingMsg.trim()) {
+            try {
+                memory.saveMessage(chatId || userId, 'user', incomingMsg);
+            } catch (e) {
+                console.error('[Memory] Save error:', e.message);
+            }
         }
 
         // AUTO-CONTEXT: Check if this chat has a registered context
@@ -1082,12 +1107,28 @@ async function processMessageForTelegram(incomingMsg, context) {
                             });
 
                             execResponse = result.message;
+
+                            // Smart follow-up: suggest deploying after PR creation
+                            if (result?.prUrl) {
+                                setTimeout(async () => {
+                                    try {
+                                        const followUpTelegram = getTelegramHandler();
+                                        if (followUpTelegram?.isAvailable() && chatId) {
+                                            await followUpTelegram.sendMessage(chatId,
+                                                `💡 When you're ready, say "deploy to vercel" to see it live.`
+                                            );
+                                        }
+                                    } catch (e) {
+                                        // Ignore follow-up errors
+                                    }
+                                }, 3000);
+                            }
                         } catch (execError) {
                             console.error('[VoicePlan] Plan execution error:', execError);
                             execResponse = `Plan execution failed: ${execError.message}\n\nThe plan was confirmed but could not be executed automatically. You can try the individual commands manually.`;
                         }
 
-                        if (memory) memory.saveMessage(userId, 'assistant', execResponse);
+                        if (memory) memory.saveMessage(chatId || userId, 'assistant', execResponse);
                         return execResponse;
 
                     } else if (userIntent === 'reject') {
@@ -1098,6 +1139,9 @@ async function processMessageForTelegram(incomingMsg, context) {
                         // User is clarifying, modifying, or asking questions
                         console.log(`[VoicePlan] User follow-up: ${userMessage}`);
 
+                        // Get conversation history for context
+                        const planClarifyHistory = memory ? memory.getConversationForClaude(chatId || userId, 8) : [];
+
                         const response = await aiHandler.processQuery(
                             `CONTEXT: You're helping the user with a plan.\n\n` +
                             `ORIGINAL VOICE INSTRUCTION: "${pending.params.transcript}"\n\n` +
@@ -1107,7 +1151,7 @@ async function processMessageForTelegram(incomingMsg, context) {
                             `If they're asking a question, answer it. If they seem ready, ask if they want to proceed. ` +
                             `Be conversational - suggest things, ask clarifying questions if needed. ` +
                             `Don't say "reply yes or no" - just have a natural conversation.`,
-                            { userId, taskType: 'planning', platform: 'telegram' }
+                            { userId, taskType: 'planning', platform: 'telegram', conversationHistory: planClarifyHistory }
                         );
 
                         // Update plan context with the conversation
@@ -1117,7 +1161,7 @@ async function processMessageForTelegram(incomingMsg, context) {
                             history: (pending.params.history || '') + `\nUser: ${userMessage}\nBot: ${response}`
                         });
 
-                        if (memory) memory.saveMessage(userId, 'assistant', response);
+                        if (memory) memory.saveMessage(chatId || userId, 'assistant', response);
                         return response;
                     }
                 }
@@ -1199,19 +1243,22 @@ async function processMessageForTelegram(incomingMsg, context) {
                             // Use AI to handle the voice modification naturally
                             const userIntent = await classifyUserResponse(transcript, pending);
 
+                            // Get conversation history for voice plan context
+                            const voicePlanHistory = memory ? memory.getConversationForClaude(chatId || userId, 8) : [];
+
                             if (userIntent === 'confirm') {
                                 confirmationManager.confirm(userId);
                                 const execResponse = await aiHandler.processQuery(
                                     `CONTEXT: The user gave voice instructions:\n"${pending.params.transcript}"\n\nPLAN:\n${pending.params.plan}\n\n` +
                                     `The user just confirmed via voice: "${transcript}"\n\nExecute the plan. Be conversational.`,
-                                    { userId, taskType: 'coding', platform: 'telegram' }
+                                    { userId, taskType: 'coding', platform: 'telegram', conversationHistory: voicePlanHistory }
                                 );
                                 responseText = execResponse;
                             } else {
                                 const response = await aiHandler.processQuery(
                                     `CONTEXT: You're helping the user with a plan.\n\nORIGINAL: "${pending.params.transcript}"\n\nCURRENT PLAN:\n${pending.params.plan}\n\n` +
                                     `USER VOICE UPDATE: "${transcript}"\n\nUpdate the plan based on what they said. Be conversational.`,
-                                    { userId, taskType: 'planning', platform: 'telegram' }
+                                    { userId, taskType: 'planning', platform: 'telegram', conversationHistory: voicePlanHistory }
                                 );
                                 confirmationManager.setPending(userId, 'voice_plan', {
                                     transcript: pending.params.transcript + ' ' + transcript,
@@ -1257,15 +1304,11 @@ async function processMessageForTelegram(incomingMsg, context) {
                         activityLog.log('activity', 'voice', `Voice transcribed (${wordCount} words). Creating plan with AI...`, { userId, wordCount });
 
                         try {
-                            // Get conversation history for context
-                            const history = memory ? memory.getHistory(userId, 5) : [];
-                            const historyContext = history.length > 0
-                                ? `\nRECENT CONVERSATION:\n${history.map(m => `${m.role}: ${m.content?.substring(0, 200)}`).join('\n')}\n`
-                                : '';
+                            // Get conversation history for context (persistent, per-chat)
+                            const voicePlanCreateHistory = memory ? memory.getConversationForClaude(chatId || userId, 8) : [];
 
                             const planResponse = await aiHandler.processQuery(
                                 `You're a helpful assistant. The user sent a voice note with instructions.\n\n` +
-                                `${historyContext}\n` +
                                 `VOICE INSTRUCTION: "${transcript}"\n\n` +
                                 `Respond naturally:\n` +
                                 `1. Briefly confirm what you understood\n` +
@@ -1274,7 +1317,7 @@ async function processMessageForTelegram(incomingMsg, context) {
                                 `4. If anything is unclear, ask a question\n` +
                                 `5. If everything is clear, ask if they'd like you to proceed\n\n` +
                                 `Be conversational and friendly. Don't use rigid formatting. Talk like a helpful colleague.`,
-                                { userId, taskType: 'planning' }
+                                { userId, taskType: 'planning', conversationHistory: voicePlanCreateHistory }
                             );
 
                             if (confirmationManager) {
@@ -1334,12 +1377,16 @@ async function processMessageForTelegram(incomingMsg, context) {
 
                         // No skill matched - fall back to AI handler
                         if (aiHandler) {
+                            // Get conversation history for context
+                            const voiceFallbackHistory = memory ? memory.getConversationForClaude(chatId || userId, 8) : [];
+
                             const aiResponse = await aiHandler.processQuery(transcript, {
                                 userId,
                                 platform: 'telegram',
                                 projectContext: activeProject?.getActiveProject(userId),
                                 autoRepo,
-                                autoCompany
+                                autoCompany,
+                                conversationHistory: voiceFallbackHistory
                             });
                             if (memory) memory.saveMessage(userId, 'assistant', aiResponse);
                             return aiResponse;
@@ -1356,6 +1403,9 @@ async function processMessageForTelegram(incomingMsg, context) {
 
         // FALLBACK TO AI
         if (aiHandler) {
+            // Get conversation history for context (persistent, per-chat)
+            const fallbackHistory = memory ? memory.getConversationForClaude(chatId || userId, 8) : [];
+
             const response = await aiHandler.processQuery(processedMsg, {
                 userId,
                 platform: 'telegram',
@@ -1363,7 +1413,8 @@ async function processMessageForTelegram(incomingMsg, context) {
                 mediaContentType,
                 projectContext: activeProject?.getActiveProject(userId),
                 autoRepo,
-                autoCompany
+                autoCompany,
+                conversationHistory: fallbackHistory
             });
 
             if (memory) {
@@ -1384,9 +1435,13 @@ async function processMessageForTelegram(incomingMsg, context) {
 // Supports both WhatsApp (default) and Telegram platforms
 async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext, platform = 'whatsapp') {
     try {
-        // Save incoming message to memory
-        if (memory) {
-            memory.saveMessage(userId, 'user', incomingMsg);
+        // Save incoming message to memory (skip empty messages)
+        if (memory && incomingMsg && incomingMsg.trim()) {
+            try {
+                memory.saveMessage(userId, 'user', incomingMsg);
+            } catch (e) {
+                console.error('[Memory] Save error:', e.message);
+            }
         }
 
         // AUTO-CONTEXT: Check if this chat has a registered context
