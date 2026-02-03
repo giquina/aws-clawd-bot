@@ -1003,56 +1003,84 @@ async function processMessageForTelegram(incomingMsg, context) {
             const pending = confirmationManager.getPending(userId);
 
             if (pending && pending.action === 'voice_plan') {
-                // Use AI to understand the user's intent naturally
-                // No rigid "yes"/"no" - understand human language
-                const userIntent = await classifyUserResponse(incomingMsg, pending);
+                // If this is a voice note, transcribe it FIRST before processing
+                let userMessage = incomingMsg;
+                const isVoiceFollowUp = mediaContentType && mediaContentType.startsWith('audio/');
 
-                if (userIntent === 'confirm') {
-                    confirmationManager.confirm(userId);
-                    console.log('[VoicePlan] User confirmed plan naturally');
-                    activityLog.log('activity', 'telegram', `User confirmed plan. Executing with AI...`, { userId });
+                if (isVoiceFollowUp && mediaUrl) {
+                    console.log('[VoicePlan] Voice follow-up detected, transcribing first...');
+                    activityLog.log('activity', 'voice', 'Transcribing voice follow-up...', { userId });
 
-                    const execResponse = await aiHandler.processQuery(
-                        `CONTEXT: The user gave these instructions via voice:\n"${pending.params.transcript}"\n\n` +
-                        `PLAN:\n${pending.params.plan}\n\n` +
-                        `The user confirmed with: "${incomingMsg}"\n\n` +
-                        `Execute the plan. For each step, explain what you're doing clearly. ` +
-                        `At the end, suggest what the user should do next. Be conversational and helpful.`,
-                        { userId, taskType: 'coding', platform: 'telegram' }
-                    );
+                    try {
+                        // Use the voice skill to transcribe
+                        const voiceSkillContext = { userId, chatId, platform: 'telegram', mediaUrl, mediaContentType, numMedia: 1 };
+                        const voiceResult = await skillRegistry.route('__voice__', voiceSkillContext);
+                        if (voiceResult.handled && voiceResult.data?.transcription) {
+                            userMessage = voiceResult.data.transcription;
+                            console.log(`[VoicePlan] Voice transcribed: "${userMessage.substring(0, 60)}"`);
+                            activityLog.log('activity', 'voice', `Transcribed: "${userMessage.substring(0, 60)}"`, { userId });
+                        }
+                    } catch (err) {
+                        console.error('[VoicePlan] Voice transcription failed:', err.message);
+                    }
+                }
 
-                    if (memory) memory.saveMessage(userId, 'assistant', execResponse);
-                    return execResponse;
-
-                } else if (userIntent === 'reject') {
-                    confirmationManager.cancel(userId);
-                    return "No worries, plan cancelled. What would you like to do instead?";
-
+                // If still empty after transcription attempt, skip plan handling
+                if (!userMessage || !userMessage.trim()) {
+                    console.log('[VoicePlan] Empty message, skipping plan handler');
+                    // Fall through to normal processing
                 } else {
-                    // User is clarifying, modifying, or asking questions
-                    console.log(`[VoicePlan] User follow-up: ${incomingMsg}`);
+                    // Use AI to understand the user's intent naturally
+                    // No rigid "yes"/"no" - understand human language
+                    const userIntent = await classifyUserResponse(userMessage, pending);
 
-                    const response = await aiHandler.processQuery(
-                        `CONTEXT: You're helping the user with a plan.\n\n` +
-                        `ORIGINAL VOICE INSTRUCTION: "${pending.params.transcript}"\n\n` +
-                        `CURRENT PLAN:\n${pending.params.plan}\n\n` +
-                        `USER SAYS: "${incomingMsg}"\n\n` +
-                        `Respond naturally. If they're modifying the plan, show the updated plan. ` +
-                        `If they're asking a question, answer it. If they seem ready, ask if they want to proceed. ` +
-                        `Be conversational - suggest things, ask clarifying questions if needed. ` +
-                        `Don't say "reply yes or no" - just have a natural conversation.`,
-                        { userId, taskType: 'planning', platform: 'telegram' }
-                    );
+                    if (userIntent === 'confirm') {
+                        confirmationManager.confirm(userId);
+                        console.log('[VoicePlan] User confirmed plan naturally');
+                        activityLog.log('activity', 'telegram', `User confirmed plan. Executing with AI...`, { userId });
 
-                    // Update plan context with the conversation
-                    confirmationManager.setPending(userId, 'voice_plan', {
-                        transcript: pending.params.transcript,
-                        plan: response,
-                        history: (pending.params.history || '') + `\nUser: ${incomingMsg}\nBot: ${response}`
-                    });
+                        const execResponse = await aiHandler.processQuery(
+                            `CONTEXT: The user gave these instructions via voice:\n"${pending.params.transcript}"\n\n` +
+                            `PLAN:\n${pending.params.plan}\n\n` +
+                            `The user confirmed with: "${userMessage}"\n\n` +
+                            `Execute the plan. For each step, explain what you're doing clearly. ` +
+                            `At the end, suggest what the user should do next. Be conversational and helpful.`,
+                            { userId, taskType: 'coding', platform: 'telegram' }
+                        );
 
-                    if (memory) memory.saveMessage(userId, 'assistant', response);
-                    return response;
+                        if (memory) memory.saveMessage(userId, 'assistant', execResponse);
+                        return execResponse;
+
+                    } else if (userIntent === 'reject') {
+                        confirmationManager.cancel(userId);
+                        return "No worries, plan cancelled. What would you like to do instead?";
+
+                    } else {
+                        // User is clarifying, modifying, or asking questions
+                        console.log(`[VoicePlan] User follow-up: ${userMessage}`);
+
+                        const response = await aiHandler.processQuery(
+                            `CONTEXT: You're helping the user with a plan.\n\n` +
+                            `ORIGINAL VOICE INSTRUCTION: "${pending.params.transcript}"\n\n` +
+                            `CURRENT PLAN:\n${pending.params.plan}\n\n` +
+                            `USER SAYS: "${userMessage}"\n\n` +
+                            `Respond naturally. If they're modifying the plan, show the updated plan. ` +
+                            `If they're asking a question, answer it. If they seem ready, ask if they want to proceed. ` +
+                            `Be conversational - suggest things, ask clarifying questions if needed. ` +
+                            `Don't say "reply yes or no" - just have a natural conversation.`,
+                            { userId, taskType: 'planning', platform: 'telegram' }
+                        );
+
+                        // Update plan context with the conversation
+                        confirmationManager.setPending(userId, 'voice_plan', {
+                            transcript: pending.params.transcript,
+                            plan: response,
+                            history: (pending.params.history || '') + `\nUser: ${userMessage}\nBot: ${response}`
+                        });
+
+                        if (memory) memory.saveMessage(userId, 'assistant', response);
+                        return response;
+                    }
                 }
             }
 
