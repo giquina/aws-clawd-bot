@@ -534,6 +534,42 @@ app.get('/api/skills', apiAuth, (req, res) => {
     }
 });
 
+// GET /api/logs - Get recent activity logs
+app.get('/api/logs', apiAuth, (req, res) => {
+    const limit = parseInt(req.query.limit) || 50;
+    const level = req.query.level || null;
+    const source = req.query.source || null;
+    
+    const activityLog = require('./lib/activity-log');
+    let logs = activityLog.getRecent(limit);
+    
+    if (level) {
+        logs = logs.filter(l => l.level === level);
+    }
+    if (source) {
+        logs = logs.filter(l => l.source === source);
+    }
+    
+    res.json({
+        success: true,
+        count: logs.length,
+        logs
+    });
+});
+
+// GET /api/activity - Get live activity feed (activity level only)
+app.get('/api/activity', apiAuth, (req, res) => {
+    const limit = parseInt(req.query.limit) || 20;
+    const activityLog = require('./lib/activity-log');
+    const logs = activityLog.getRecent(limit).filter(l => l.level === 'activity');
+    
+    res.json({
+        success: true,
+        count: logs.length,
+        activities: logs
+    });
+});
+
 // ================================================
 // END API ENDPOINTS
 // ================================================
@@ -922,8 +958,16 @@ async function classifyUserResponse(message, pendingAction) {
 // Used by the Telegram long-polling handler which sends replies automatically
 async function processMessageForTelegram(incomingMsg, context) {
     const { userId, chatId, platform, numMedia, mediaUrl, mediaContentType } = context;
+    const activityLog = require('./lib/activity-log');
 
     try {
+        // Log incoming message
+        const isVoice = mediaContentType && mediaContentType.startsWith('audio/');
+        activityLog.log('activity', 'telegram',
+            isVoice ? `Voice message received from ${userId}` : `Message received: "${(incomingMsg || '').substring(0, 60)}..."`,
+            { userId, platform, hasMedia: !!mediaUrl }
+        );
+
         // Save incoming message to memory
         if (memory) {
             memory.saveMessage(userId, 'user', incomingMsg);
@@ -955,6 +999,7 @@ async function processMessageForTelegram(incomingMsg, context) {
                 if (userIntent === 'confirm') {
                     confirmationManager.confirm(userId);
                     console.log('[VoicePlan] User confirmed plan naturally');
+                    activityLog.log('activity', 'telegram', `User confirmed plan. Executing with AI...`, { userId });
 
                     const execResponse = await aiHandler.processQuery(
                         `CONTEXT: The user gave these instructions via voice:\n"${pending.params.transcript}"\n\n` +
@@ -1022,6 +1067,10 @@ async function processMessageForTelegram(incomingMsg, context) {
         const isVoiceMessage = mediaContentType && mediaContentType.startsWith('audio/');
         let processedMsg = isVoiceMessage ? '__voice__' : incomingMsg;
 
+        if (isVoiceMessage) {
+            activityLog.log('activity', 'voice', 'Transcribing voice message with Groq Whisper...', { userId });
+        }
+
         // RUN HOOKS (smart router converts natural language to commands)
         // Skip hooks for voice - the voice skill handles transcription
         if (hooks && !isVoiceMessage) {
@@ -1039,6 +1088,7 @@ async function processMessageForTelegram(incomingMsg, context) {
         }
 
         // TRY SKILL ROUTING FIRST
+        activityLog.log('activity', 'skill', `Routing command: "${(processedMsg || '').substring(0, 50)}"`, { userId });
         if (skillRegistry) {
             const skillContext = {
                 userId,
@@ -1103,6 +1153,7 @@ async function processMessageForTelegram(incomingMsg, context) {
 
                     if (wordCount > 25 || (wordCount > 15 && hasKeywords)) {
                         console.log(`[VoicePlan] Complex instruction detected (${wordCount} words), creating plan...`);
+                        activityLog.log('activity', 'voice', `Voice transcribed (${wordCount} words). Creating plan with AI...`, { userId, wordCount });
 
                         try {
                             // Get conversation history for context
@@ -1131,6 +1182,7 @@ async function processMessageForTelegram(incomingMsg, context) {
                                     plan: planResponse
                                 });
                                 console.log('[VoicePlan] Plan stored for conversation');
+                                activityLog.log('activity', 'ai', 'Plan created. Waiting for user confirmation...', { userId });
                             }
 
                             responseText = planResponse;

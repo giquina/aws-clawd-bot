@@ -373,6 +373,10 @@ class TelegramHandler {
             }
 
             console.log(`[${new Date().toISOString()}] Telegram message sent to ${chatId}`);
+            try {
+                const activityLog = require('./lib/activity-log');
+                activityLog.log('activity', 'telegram', `Response sent to ${chatId} (${text.length} chars)`, { chatId });
+            } catch (e) { /* activity log not critical */ }
             return result;
         } catch (error) {
             // Handle markdown parse errors by retrying without markdown

@@ -44,6 +44,8 @@ export const api = {
   deployProject: (repo: string) => fetchAPI<DeployResponse>(`/api/project/${encodeURIComponent(repo)}/deploy`, {
     method: 'POST',
   }),
+  getLogs: (limit = 100) => fetchAPI<LogsResponse>(`/api/logs?limit=${limit}`),
+  getActivity: (limit = 20) => fetchAPI<ActivityResponse>(`/api/activity?limit=${limit}`),
 };
 
 // Response types
@@ -146,4 +148,30 @@ export interface DeployResponse {
   repo: string;
   output: string;
   errors?: string;
+}
+
+export interface LogsResponse {
+  success: boolean;
+  count: number;
+  logs: Array<{
+    id: number;
+    timestamp: string;
+    level: string;
+    source: string;
+    message: string;
+    meta?: Record<string, unknown>;
+  }>;
+}
+
+export interface ActivityResponse {
+  success: boolean;
+  count: number;
+  activities: Array<{
+    id: number;
+    timestamp: string;
+    level: string;
+    source: string;
+    message: string;
+    meta?: Record<string, unknown>;
+  }>;
 }

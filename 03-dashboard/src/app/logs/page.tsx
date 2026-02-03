@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useMockLogs, LogLevel, LogEntry } from '@/hooks/useMockLogs';
+import { useRealLogs, LogLevel, LogEntry } from '@/hooks/useRealLogs';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,8 @@ import {
   Pause,
   ChevronDown,
   Filter,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 
 type FilterLevel = 'ALL' | LogLevel;
@@ -47,16 +49,18 @@ function getLevelColor(level: LogLevel): string {
       return 'text-yellow-400';
     case 'ERROR':
       return 'text-red-400';
+    case 'ACTIVITY':
+      return 'text-cyan-400';
     default:
       return 'text-gray-300';
   }
 }
 
 export default function LogsPage() {
-  const { logs, clearLogs, isGenerating, toggleGeneration } = useMockLogs({
+  const { logs, clearLogs, isGenerating, toggleGeneration, isConnected, lastError } = useRealLogs({
     maxLogs: 500,
-    autoGenerate: true,
-    generateIntervalMs: 3000,
+    pollIntervalMs: 3000,
+    autoStart: true,
   });
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -141,6 +145,7 @@ export default function LogsPage() {
     info: logs.filter((l) => l.level === 'INFO').length,
     warn: logs.filter((l) => l.level === 'WARN').length,
     error: logs.filter((l) => l.level === 'ERROR').length,
+    activity: logs.filter((l) => l.level === 'ACTIVITY').length,
   };
 
   return (
@@ -154,13 +159,24 @@ export default function LogsPage() {
               Live Logs
             </h1>
             <p className="text-gray-500 dark:text-gray-400">
-              Real-time system logs and events
+              Real-time activity from ClawdBot server
             </p>
           </div>
         </div>
 
         {/* Controls */}
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Connection status */}
+          <div className={cn(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium',
+            isConnected
+              ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+              : 'bg-red-500/10 text-red-400 border border-red-500/20'
+          )}>
+            {isConnected ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
+            {isConnected ? 'Connected' : 'Disconnected'}
+          </div>
+
           {/* Auto-refresh toggle */}
           <Button
             variant={isGenerating ? 'primary' : 'outline'}
@@ -206,11 +222,22 @@ export default function LogsPage() {
         </div>
       </div>
 
+      {/* Error banner */}
+      {lastError && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3 text-sm text-red-400">
+          {lastError}
+        </div>
+      )}
+
       {/* Stats bar */}
       <div className="flex flex-wrap items-center gap-4 text-sm">
         <div className="flex items-center gap-2">
           <span className="text-gray-500 dark:text-gray-400">Total:</span>
           <Badge variant="outline">{logCounts.total}</Badge>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-gray-500 dark:text-gray-400">Activity:</span>
+          <Badge variant="default" className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30">{logCounts.activity}</Badge>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-gray-500 dark:text-gray-400">Info:</span>
@@ -268,7 +295,7 @@ export default function LogsPage() {
 
           {showFilterDropdown && (
             <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-gray-800 rounded-md shadow-lg border border-gray-200 dark:border-gray-700 z-10">
-              {(['ALL', 'INFO', 'WARN', 'ERROR'] as FilterLevel[]).map(
+              {(['ALL', 'ACTIVITY', 'INFO', 'WARN', 'ERROR'] as FilterLevel[]).map(
                 (level) => (
                   <button
                     key={level}
@@ -311,13 +338,19 @@ export default function LogsPage() {
             <div className="h-3 w-3 rounded-full bg-green-500" />
           </div>
           <span className="text-gray-400 text-sm font-mono ml-2">
-            clawdbot-logs
+            clawdbot@ec2 ~ pm2 logs
           </span>
           <div className="flex-1" />
-          {isGenerating && (
+          {isGenerating && isConnected && (
             <span className="text-xs text-green-400 flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
               Live
+            </span>
+          )}
+          {isGenerating && !isConnected && (
+            <span className="text-xs text-red-400 flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-400 animate-pulse" />
+              Reconnecting...
             </span>
           )}
         </div>
@@ -333,7 +366,7 @@ export default function LogsPage() {
               <FileText className="h-12 w-12 mb-3 opacity-20" />
               <p>
                 {logs.length === 0
-                  ? 'No logs yet'
+                  ? isConnected ? 'Waiting for activity... Send a message on Telegram to see logs appear here.' : 'Not connected. Check API key in Settings.'
                   : 'No logs match your filter'}
               </p>
             </div>
@@ -349,11 +382,11 @@ export default function LogsPage() {
 
       {/* Bottom info */}
       <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center justify-between">
-        <span>Maximum 500 log entries displayed. Older entries are automatically removed.</span>
+        <span>Showing real-time logs from ClawdBot server. Filter by ACTIVITY to see processing steps.</span>
         <span>
           {isGenerating
-            ? 'Auto-refresh: enabled (every 3s)'
-            : 'Auto-refresh: paused'}
+            ? 'Polling: every 3s'
+            : 'Polling: paused'}
         </span>
       </div>
     </div>
@@ -388,7 +421,10 @@ function LogLine({ log, searchQuery }: LogLineProps) {
   };
 
   return (
-    <div className="flex items-start gap-3 py-1 hover:bg-gray-800/50 px-2 -mx-2 rounded transition-colors group">
+    <div className={cn(
+      'flex items-start gap-3 py-1 hover:bg-gray-800/50 px-2 -mx-2 rounded transition-colors group',
+      log.level === 'ACTIVITY' && 'bg-cyan-500/5'
+    )}>
       {/* Timestamp */}
       <span className="text-gray-500 shrink-0 tabular-nums">
         {formatTimestamp(log.timestamp)}
@@ -397,7 +433,7 @@ function LogLine({ log, searchQuery }: LogLineProps) {
       {/* Level badge */}
       <span
         className={cn(
-          'shrink-0 w-14 text-center font-semibold',
+          'shrink-0 w-20 text-center font-semibold',
           getLevelColor(log.level)
         )}
       >
