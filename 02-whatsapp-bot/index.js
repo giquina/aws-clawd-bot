@@ -866,6 +866,58 @@ app.post('/telegram', async (req, res) => {
     }
 });
 
+// Classify user response naturally - understands "yep", "sure", "go ahead", voice notes, etc.
+async function classifyUserResponse(message, pendingAction) {
+    const msg = (message || '').toLowerCase().trim();
+
+    // Clear confirmations
+    const confirmPatterns = [
+        'yes', 'yep', 'yeah', 'yea', 'ya', 'ye',
+        'sure', 'ok', 'okay', 'k',
+        'go ahead', 'go for it', 'do it', 'proceed', 'confirm',
+        'sounds good', 'looks good', 'perfect', 'great',
+        'let\'s go', 'lets go', 'ship it', 'send it',
+        'approved', 'approve', 'agreed', 'correct',
+        'absolutely', 'definitely', 'for sure',
+        'that\'s right', 'thats right', 'right',
+        'make it happen', 'execute', 'run it',
+        'please', 'please do', 'yes please',
+        'go on', 'continue', 'carry on',
+        'good', 'fine', 'alright', 'all good',
+        'yup', 'uh huh', 'mhm', 'aye'
+    ];
+
+    // Clear rejections
+    const rejectPatterns = [
+        'no', 'nah', 'nope', 'cancel', 'stop',
+        'don\'t', 'dont', 'never mind', 'nevermind',
+        'forget it', 'scratch that', 'abort',
+        'not now', 'not yet', 'hold on', 'wait',
+        'wrong', 'incorrect', 'that\'s wrong'
+    ];
+
+    // Check for exact or starts-with match
+    for (const pattern of confirmPatterns) {
+        if (msg === pattern || msg.startsWith(pattern + ' ') || msg.startsWith(pattern + ',') || msg.startsWith(pattern + '.')) {
+            return 'confirm';
+        }
+    }
+
+    for (const pattern of rejectPatterns) {
+        if (msg === pattern || msg.startsWith(pattern + ' ') || msg.startsWith(pattern + ',') || msg.startsWith(pattern + '.')) {
+            return 'reject';
+        }
+    }
+
+    // If the message is short and affirmative-sounding, it's probably a confirm
+    if (msg.length < 20 && /^(👍|✅|🙌|💪|🤝|👌|✔️|🫡)/.test(msg)) {
+        return 'confirm';
+    }
+
+    // Otherwise it's a clarification/modification
+    return 'clarify';
+}
+
 // Telegram message processor - returns response text instead of sending
 // Used by the Telegram long-polling handler which sends replies automatically
 async function processMessageForTelegram(incomingMsg, context) {
@@ -891,70 +943,79 @@ async function processMessageForTelegram(incomingMsg, context) {
             console.log(`[AutoContext] Telegram chat ${chatId} -> company: ${autoCompany}`);
         }
 
-        // CHECK FOR PENDING CONFIRMATIONS
+        // CHECK FOR ACTIVE CONVERSATION CONTEXT (plans, confirmations)
         if (confirmationManager && confirmationManager.hasPending(userId)) {
             const pending = confirmationManager.getPending(userId);
 
-            // Handle voice plan confirmations specially
             if (pending && pending.action === 'voice_plan') {
-                const confirmResult = confirmationManager.isConfirmation(incomingMsg);
+                // Use AI to understand the user's intent naturally
+                // No rigid "yes"/"no" - understand human language
+                const userIntent = await classifyUserResponse(incomingMsg, pending);
 
-                if (confirmResult === 'yes') {
-                    // Execute the plan via AI
+                if (userIntent === 'confirm') {
                     confirmationManager.confirm(userId);
-                    console.log('[VoicePlan] User confirmed plan, executing...');
+                    console.log('[VoicePlan] User confirmed plan naturally');
 
                     const execResponse = await aiHandler.processQuery(
-                        `The user previously gave these voice instructions:\n\n"${pending.params.transcript}"\n\n` +
-                        `You created this plan:\n${pending.params.plan}\n\n` +
-                        `The user confirmed. Now execute the plan. Describe what you're doing at each step and provide the results.`,
+                        `CONTEXT: The user gave these instructions via voice:\n"${pending.params.transcript}"\n\n` +
+                        `PLAN:\n${pending.params.plan}\n\n` +
+                        `The user confirmed with: "${incomingMsg}"\n\n` +
+                        `Execute the plan. For each step, explain what you're doing clearly. ` +
+                        `At the end, suggest what the user should do next. Be conversational and helpful.`,
                         { userId, taskType: 'coding', platform: 'telegram' }
                     );
 
-                    return `✅ *Executing Plan*\n\n${execResponse}`;
+                    if (memory) memory.saveMessage(userId, 'assistant', execResponse);
+                    return execResponse;
 
-                } else if (confirmResult === 'no') {
+                } else if (userIntent === 'reject') {
                     confirmationManager.cancel(userId);
-                    return '❌ Plan cancelled.';
+                    return "No worries, plan cancelled. What would you like to do instead?";
 
                 } else {
-                    // User is clarifying or modifying - update the plan with context
-                    console.log(`[VoicePlan] User clarification: ${incomingMsg}`);
+                    // User is clarifying, modifying, or asking questions
+                    console.log(`[VoicePlan] User follow-up: ${incomingMsg}`);
 
-                    const updatedPlan = await aiHandler.processQuery(
-                        `You previously created a plan from this voice instruction:\n\n"${pending.params.transcript}"\n\n` +
-                        `Your plan was:\n${pending.params.plan}\n\n` +
-                        `The user clarified: "${incomingMsg}"\n\n` +
-                        `Update the plan based on their clarification. Show the revised plan.\n\n` +
-                        `Reply "yes" to execute, "no" to cancel, or keep clarifying.`,
+                    const response = await aiHandler.processQuery(
+                        `CONTEXT: You're helping the user with a plan.\n\n` +
+                        `ORIGINAL VOICE INSTRUCTION: "${pending.params.transcript}"\n\n` +
+                        `CURRENT PLAN:\n${pending.params.plan}\n\n` +
+                        `USER SAYS: "${incomingMsg}"\n\n` +
+                        `Respond naturally. If they're modifying the plan, show the updated plan. ` +
+                        `If they're asking a question, answer it. If they seem ready, ask if they want to proceed. ` +
+                        `Be conversational - suggest things, ask clarifying questions if needed. ` +
+                        `Don't say "reply yes or no" - just have a natural conversation.`,
                         { userId, taskType: 'planning', platform: 'telegram' }
                     );
 
-                    // Update the pending confirmation with new plan
+                    // Update plan context with the conversation
                     confirmationManager.setPending(userId, 'voice_plan', {
-                        transcript: pending.params.transcript + ` [Clarification: ${incomingMsg}]`,
-                        plan: updatedPlan
+                        transcript: pending.params.transcript,
+                        plan: response,
+                        history: (pending.params.history || '') + `\nUser: ${incomingMsg}\nBot: ${response}`
                     });
 
-                    return `📋 *Updated Plan*\n\n${updatedPlan}`;
+                    if (memory) memory.saveMessage(userId, 'assistant', response);
+                    return response;
                 }
             }
 
-            // Handle regular confirmations
-            const confirmResult = confirmationManager.isConfirmation(incomingMsg);
+            // Handle regular action confirmations (deploy, etc.)
+            const userIntent = await classifyUserResponse(incomingMsg, pending);
 
-            if (confirmResult === 'yes') {
+            if (userIntent === 'confirm') {
                 const confirmed = confirmationManager.confirm(userId);
                 if (confirmed && actionExecutor) {
                     const execResult = await actionExecutor.execute(confirmed.action, confirmed.params, confirmed.context);
                     return execResult.success
-                        ? `✅ Done!\n\n${execResult.message}`
-                        : `❌ Failed: ${execResult.error || execResult.message}`;
+                        ? `Done! ${execResult.message}`
+                        : `That didn't work: ${execResult.error || execResult.message}`;
                 }
-            } else if (confirmResult === 'no') {
+            } else if (userIntent === 'reject') {
                 confirmationManager.cancel(userId);
-                return '❌ Cancelled.';
+                return "Cancelled. What would you like to do instead?";
             }
+            // If neither confirm nor reject, fall through to normal processing
         }
 
         // For voice messages, use __voice__ trigger so voice skill handles it
@@ -996,39 +1057,83 @@ async function processMessageForTelegram(incomingMsg, context) {
             if (skillResult.handled) {
                 let responseText = skillResult.success ? skillResult.message : `❌ ${skillResult.message}`;
 
-                // If this was a voice transcription, check if it's complex enough for a plan
+                // If this was a voice transcription, process it intelligently
                 if (mediaContentType?.startsWith('audio/') && skillResult.success && skillResult.data?.transcription) {
                     const transcript = skillResult.data.transcription;
                     const wordCount = transcript.split(/\s+/).length;
 
-                    // Complex voice instructions (50+ words or has planning keywords)
-                    const planningKeywords = ['first', 'then', 'after that', 'next', 'finally', 'also', 'and then', 'step', 'create', 'build', 'implement', 'add', 'multiple', 'several'];
+                    // Check if there's an existing plan being modified via voice
+                    if (confirmationManager && confirmationManager.hasPending(userId)) {
+                        const pending = confirmationManager.getPending(userId);
+                        if (pending && pending.action === 'voice_plan') {
+                            console.log(`[VoicePlan] Voice follow-up to existing plan: ${transcript.substring(0, 50)}...`);
+
+                            // Use AI to handle the voice modification naturally
+                            const userIntent = await classifyUserResponse(transcript, pending);
+
+                            if (userIntent === 'confirm') {
+                                confirmationManager.confirm(userId);
+                                const execResponse = await aiHandler.processQuery(
+                                    `CONTEXT: The user gave voice instructions:\n"${pending.params.transcript}"\n\nPLAN:\n${pending.params.plan}\n\n` +
+                                    `The user just confirmed via voice: "${transcript}"\n\nExecute the plan. Be conversational.`,
+                                    { userId, taskType: 'coding', platform: 'telegram' }
+                                );
+                                responseText = execResponse;
+                            } else {
+                                const response = await aiHandler.processQuery(
+                                    `CONTEXT: You're helping the user with a plan.\n\nORIGINAL: "${pending.params.transcript}"\n\nCURRENT PLAN:\n${pending.params.plan}\n\n` +
+                                    `USER VOICE UPDATE: "${transcript}"\n\nUpdate the plan based on what they said. Be conversational.`,
+                                    { userId, taskType: 'planning', platform: 'telegram' }
+                                );
+                                confirmationManager.setPending(userId, 'voice_plan', {
+                                    transcript: pending.params.transcript + ' ' + transcript,
+                                    plan: response
+                                });
+                                responseText = response;
+                            }
+
+                            if (memory) memory.saveMessage(userId, 'assistant', responseText);
+                            return responseText;
+                        }
+                    }
+
+                    // New voice instruction - create a plan if complex enough
+                    const planningKeywords = ['first', 'then', 'after that', 'next', 'finally', 'also', 'and then', 'step', 'create', 'build', 'implement', 'add', 'want', 'need', 'should'];
                     const hasKeywords = planningKeywords.some(kw => transcript.toLowerCase().includes(kw));
 
-                    if (wordCount > 40 || (wordCount > 20 && hasKeywords)) {
+                    if (wordCount > 25 || (wordCount > 15 && hasKeywords)) {
                         console.log(`[VoicePlan] Complex instruction detected (${wordCount} words), creating plan...`);
 
                         try {
+                            // Get conversation history for context
+                            const history = memory ? memory.getHistory(userId, 5) : [];
+                            const historyContext = history.length > 0
+                                ? `\nRECENT CONVERSATION:\n${history.map(m => `${m.role}: ${m.content?.substring(0, 200)}`).join('\n')}\n`
+                                : '';
+
                             const planResponse = await aiHandler.processQuery(
-                                `You are a task planner. A user sent a voice note with these instructions:\n\n"${transcript}"\n\nCreate a structured execution plan:\n\n` +
-                                `📋 *Summary:* [one sentence]\n\n` +
-                                `*Tasks:*\n1. [specific actionable task]\n2. [task]\n...\n\n` +
-                                `*Projects affected:* [which repos]\n\n` +
-                                `*Questions:* [anything unclear?]\n\n` +
-                                `Reply "yes" to execute, "no" to cancel, or answer my questions.`,
+                                `You're a helpful assistant. The user sent a voice note with instructions.\n\n` +
+                                `${historyContext}\n` +
+                                `VOICE INSTRUCTION: "${transcript}"\n\n` +
+                                `Respond naturally:\n` +
+                                `1. Briefly confirm what you understood\n` +
+                                `2. List the specific tasks you'll do\n` +
+                                `3. Mention which project(s) this affects\n` +
+                                `4. If anything is unclear, ask a question\n` +
+                                `5. If everything is clear, ask if they'd like you to proceed\n\n` +
+                                `Be conversational and friendly. Don't use rigid formatting. Talk like a helpful colleague.`,
                                 { userId, taskType: 'planning' }
                             );
 
-                            // Store as pending confirmation so follow-ups work
                             if (confirmationManager) {
                                 confirmationManager.setPending(userId, 'voice_plan', {
                                     transcript: transcript,
                                     plan: planResponse
                                 });
-                                console.log('[VoicePlan] Plan stored as pending confirmation');
+                                console.log('[VoicePlan] Plan stored for conversation');
                             }
 
-                            responseText = `🎤 *Voice Instruction Received*\n_${wordCount} words transcribed_\n\n${planResponse}`;
+                            responseText = planResponse;
                         } catch (err) {
                             console.error('[VoicePlan] Error creating plan:', err.message);
                         }
