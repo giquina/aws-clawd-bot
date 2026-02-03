@@ -28,6 +28,17 @@ app.use('/github-webhook', bodyParser.json({
 // Default JSON parser for other routes
 app.use(bodyParser.json());
 
+// CORS - allow dashboard and other clients to call the API
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-API-Key');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
+
 // Import core modules
 const aiHandler = require('./ai-handler');
 const githubWebhook = require('./github-webhook');

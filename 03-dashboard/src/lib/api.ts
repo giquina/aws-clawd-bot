@@ -2,7 +2,7 @@ const BASE_URL = process.env.NEXT_PUBLIC_CLAWDBOT_URL || 'http://16.171.150.151:
 
 export function getApiKey(): string {
   if (typeof window === 'undefined') return '';
-  return localStorage.getItem('clawdbot-api-key') || '';
+  return localStorage.getItem('clawdbot-api-key') || process.env.NEXT_PUBLIC_CLAWDBOT_API_KEY || 'dev-key-change-me';
 }
 
 export function setApiKey(key: string): void {
