@@ -31,7 +31,7 @@ class ProjectIntelligence {
     const { userId } = context;
 
     // Get user's active project context
-    const userActiveProject = activeProject.get(userId);
+    const userActiveProject = activeProject.getActiveProject(userId);
 
     // Build classification context
     const classifyContext = {
@@ -101,7 +101,7 @@ class ProjectIntelligence {
 
     // Extract tasks from the transcript
     const extraction = await intentClassifier.extractTasks(transcript, {
-      activeProject: activeProject.get(userId)?.repo
+      activeProject: activeProject.getActiveProject(userId)?.repo
     });
 
     // Process each task

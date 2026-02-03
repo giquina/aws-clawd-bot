@@ -102,10 +102,9 @@ class VoiceSkill extends BaseSkill {
       const audioSizeMB = (audioBuffer.length / 1024 / 1024).toFixed(2);
       this.log('info', `Audio downloaded: ${audioSizeMB}MB, ${audioBuffer.length} bytes`);
 
-      // Determine if this is a long recording (likely a meeting)
-      // WhatsApp voice notes are typically ~16kbps for ogg
-      // 1 hour ≈ 7-8MB, 5 min ≈ 600KB
-      const isLongRecording = audioBuffer.length > 500000; // > 500KB ≈ > 2-3 minutes
+      // Determine if this is a very long recording (likely a meeting)
+      // Only treat as meeting if explicitly requested OR very large (>5MB ≈ 10+ minutes)
+      const isLongRecording = audioBuffer.length > 5000000; // > 5MB ≈ > 10 minutes
 
       // Transcribe with Groq Whisper
       const transcript = await this.transcribeWithGroq(audioBuffer, mediaContentType);
@@ -115,9 +114,11 @@ class VoiceSkill extends BaseSkill {
       }
 
       // Decide processing mode
+      // Meeting mode only for explicit request or very long recordings
       if (isMeetingMode || isLongRecording) {
         return await this.processMeetingTranscript(transcript, audioSizeMB, userId);
       } else {
+        // Normal voice note - return transcription for planning/execution
         return await this.processShortVoice(transcript, context);
       }
 
