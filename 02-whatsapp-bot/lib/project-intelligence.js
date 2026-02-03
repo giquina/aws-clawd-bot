@@ -51,8 +51,10 @@ class ProjectIntelligence {
 
       // Auto-switch active project if high confidence
       if (classification.confidence > 0.7 && projectDetails) {
-        activeProject.set(userId, {
+        activeProject.setActiveProject(userId, {
           repo: projectDetails.repo,
+          owner: 'giquina',
+          fullName: `giquina/${projectDetails.repo}`,
           name: classification.project,
           type: projectDetails.type
         });

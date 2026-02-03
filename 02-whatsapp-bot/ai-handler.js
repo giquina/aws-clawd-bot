@@ -113,9 +113,9 @@ class AIHandler {
             if (lowerQuery.includes(keyword)) {
                 // Check for active project
                 if (activeProject) {
-                    const active = activeProject.get();
+                    const active = activeProject.getActiveProject && activeProject.getActiveProject('default');
                     if (active) {
-                        return { repo: active.repo, confidence: 0.8 };
+                        return { repo: active.repo || active.fullName, confidence: 0.8 };
                     }
                 }
                 return { repo: null, confidence: 0.5, needsActiveProject: true };
@@ -138,9 +138,9 @@ class AIHandler {
             if (!detected || !detected.repo) {
                 // Check for active project as fallback
                 if (activeProject) {
-                    const active = activeProject.get(userId);
+                    const active = activeProject.getActiveProject(userId);
                     if (active) {
-                        return await this.fetchProjectContext(active.repo, query);
+                        return await this.fetchProjectContext(active.repo || active.fullName, query);
                     }
                 }
                 return null;
@@ -169,15 +169,20 @@ class AIHandler {
                 return cached.context;
             }
 
-            // Use projectManager if available
+            // Use projectManager if available - fetch TODO.md for context
             if (projectManager) {
-                const context = await projectManager.getProjectContext(repo);
-                if (context) {
-                    this.projectContextCache.set(repo, {
-                        context,
-                        timestamp: Date.now()
-                    });
-                    return context;
+                try {
+                    const todoContent = await projectManager.fetchTodoMd(repo);
+                    if (todoContent) {
+                        const context = { repo, todoMd: todoContent, source: 'project-manager' };
+                        this.projectContextCache.set(repo, {
+                            context,
+                            timestamp: Date.now()
+                        });
+                        return context;
+                    }
+                } catch (pmErr) {
+                    console.log(`[AI Handler] projectManager fetch failed for ${repo}:`, pmErr.message);
                 }
             }
 
@@ -421,11 +426,13 @@ Try "help" to see what I can do! 💬`;
             // Initialize providers on first use
             await this.initProviders();
 
-            // Add query to conversation history
-            this.conversationHistory.push({
-                role: 'user',
-                content: query
-            });
+            // Add query to conversation history (only if non-empty)
+            if (query && query.trim()) {
+                this.conversationHistory.push({
+                    role: 'user',
+                    content: query
+                });
+            }
 
             // Keep only last 10 messages to manage context
             if (this.conversationHistory.length > 10) {
@@ -498,11 +505,13 @@ Try "help" to see what I can do! 💬`;
                 aiResponse = await this.processWithLegacyClaude(query, systemPrompt);
             }
 
-            // Add to history
-            this.conversationHistory.push({
-                role: 'assistant',
-                content: aiResponse
-            });
+            // Add to history (only if non-empty)
+            if (aiResponse && aiResponse.trim()) {
+                this.conversationHistory.push({
+                    role: 'assistant',
+                    content: aiResponse
+                });
+            }
 
             return aiResponse;
         } catch (error) {
@@ -697,8 +706,8 @@ Don't sign off messages - just end naturally with a relevant emoji if appropriat
      */
     setActiveProject(userId, repo) {
         if (activeProject) {
-            activeProject.set(userId, repo);
-            console.log(`[AI Handler] Active project set for ${userId}: ${repo}`);
+            activeProject.setActiveProject(userId, typeof repo === 'string' ? { repo, owner: 'giquina', fullName: `giquina/${repo}` } : repo);
+            console.log(`[AI Handler] Active project set for ${userId}: ${typeof repo === 'string' ? repo : repo.repo}`);
         }
     }
 
@@ -709,8 +718,8 @@ Don't sign off messages - just end naturally with a relevant emoji if appropriat
      */
     getActiveProject(userId) {
         if (activeProject) {
-            const active = activeProject.get(userId);
-            return active ? active.repo : null;
+            const active = activeProject.getActiveProject(userId);
+            return active ? (active.repo || active.fullName) : null;
         }
         return null;
     }

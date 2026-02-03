@@ -104,12 +104,16 @@ class ClaudeHandler {
         // Build messages array
         const messages = [];
 
-        // Add conversation history (last 10 messages)
+        // Add conversation history (last 10 messages, filter out empty content)
         if (history.length > 0) {
-            messages.push(...history.slice(-10));
+            const validHistory = history.slice(-10).filter(m => m.content && m.content.trim());
+            messages.push(...validHistory);
         }
 
-        // Add current query
+        // Add current query (guard against empty)
+        if (!query || !query.trim()) {
+            return { response: "I didn't catch that. Could you repeat?", tokens: 0, provider: 'claude', tier: 'quick' };
+        }
         messages.push({ role: 'user', content: query });
 
         try {

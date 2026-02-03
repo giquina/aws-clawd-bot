@@ -732,10 +732,17 @@ class MessagingPlatform {
     }
 
     try {
+      // Guard against undefined/null toNumber
+      const number = toNumber || process.env.YOUR_WHATSAPP;
+      if (!number) {
+        console.error('[WhatsApp] No recipient number provided');
+        return false;
+      }
+
       // Ensure proper WhatsApp format
-      const recipient = toNumber.startsWith('whatsapp:')
-        ? toNumber
-        : `whatsapp:${toNumber}`;
+      const recipient = number.startsWith('whatsapp:')
+        ? number
+        : `whatsapp:${number}`;
 
       await this.twilioClient.messages.create({
         body: message,

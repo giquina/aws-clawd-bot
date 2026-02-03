@@ -223,7 +223,7 @@ async function sendProactiveMessage(message, alertLevel = 'info') {
         if (defaultChat.platform === 'telegram') {
             await sendTelegramMessage(message, defaultChat.chatId);
         } else {
-            await sendWhatsAppMessage(message, defaultChat.chatId.startsWith('whatsapp:') ? defaultChat.chatId : null);
+            await sendWhatsAppMessage(message, defaultChat.chatId || process.env.YOUR_WHATSAPP);
         }
     } else {
         // Fallback to WhatsApp if nothing else configured
@@ -1827,7 +1827,7 @@ async function handleTelegramCallback(callbackData, chatId, ctx) {
                 // Set active project
                 try {
                     const activeProject = require('./lib/active-project');
-                    activeProject.set(userId, params);
+                    activeProject.setActiveProject(userId, { repo: params, owner: 'giquina', fullName: `giquina/${params}` });
                     responseText = `Active project set to *${params}*`;
                 } catch (err) {
                     responseText = `Selected: *${params}*\n\n_Use project commands to interact._`;
