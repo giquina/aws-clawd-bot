@@ -47,6 +47,27 @@ class SmartRouter {
       return message;
     }
 
+    // Don't route coding/development instructions — let AI handle them
+    // These are feature requests, bug fixes, UI changes, etc. that need AI planning
+    const codingPatterns = [
+      /^add (a |the |an )?/i,           // "add a bottom nav bar", "add login"
+      /^(make|change|update|modify|improve|refactor|redesign)/i,
+      /^(fix|debug|resolve|patch|repair)/i,
+      /^(remove|delete|hide|disable) (the |a |an )?/i,
+      /^(implement|integrate|connect|wire|hook|set\s*up)/i,
+      /^(style|theme|color|design|layout|animate)/i,
+      /^(move|reorganize|restructure|split|merge|combine)/i,
+      /^(replace|swap|substitute|convert|migrate|upgrade)/i,
+      /^(optimize|speed up|improve performance|cache|lazy)/i,
+      /^(write|code|program|develop|scaffold)/i,
+      /\b(navigation|navbar|sidebar|header|footer|button|form|modal|page|component|feature)\b/i,
+      /\b(like|similar to|same as|copy from|based on)\b.*\b(app|project|repo|site)\b/i,
+    ];
+    if (codingPatterns.some(p => p.test(message.trim()))) {
+      console.log(`[SmartRouter] Coding instruction, passing to AI: "${message.substring(0, 60)}"`);
+      return message;
+    }
+
     // Check cache (include context in cache key for auto-context)
     const cacheKey = context.autoRepo
       ? `${message.toLowerCase()}|repo:${context.autoRepo}`
@@ -141,8 +162,8 @@ class SmartRouter {
     const commandPatterns = [
       // Core commands
       /^(help|status|deadlines|expenses|companies|list repos)/i,
-      // Action commands
-      /^(create|edit|fix|review|search|read|analyze)/i,
+      // Action commands — only exact skill commands, not coding instructions
+      /^(review pr|search tasks?|read file|analyze\s+\w+$)/i,
       // Domain commands
       /^(company|governance|intercompany|workflows|loans|ic balance)/i,
       // Direct company code queries
@@ -153,6 +174,8 @@ class SmartRouter {
       /^(project status|readme|project files|switch to|my repos)/i,
       // Remote execution commands
       /^(run tests|deploy|logs|restart|build|install|exec)/i,
+      // Explicit create project command (not "create a feature")
+      /^create new project\s+\w+$/i,
     ];
     return commandPatterns.some(p => p.test(trimmed));
   }
@@ -189,9 +212,9 @@ class SmartRouter {
       // === REPOS / GITHUB ===
       { match: /(what|show|list).*(repo|project|repositories)/i, command: 'list repos' },
       { match: /my\s*(repo|project)s/i, command: 'list repos' },
-      { match: /analyze\s+(.+)/i, command: (m) => `analyze ${m[1]}` },
-      { match: /create.*project\s+(.+)/i, command: (m) => `create new project ${m[1]}` },
-      { match: /new\s+repo\s+(.+)/i, command: (m) => `create new project ${m[1]}` },
+      { match: /^analyze\s+(\S+)$/i, command: (m) => `analyze ${m[1]}` },
+      { match: /^create\s+(a\s+)?new\s+(project|repo)\s+(\S+)$/i, command: (m) => `create new project ${m[3]}` },
+      { match: /^new\s+repo\s+(\S+)$/i, command: (m) => `create new project ${m[1]}` },
 
       // === GOVERNANCE ===
       { match: /can\s*i\s*(pay|declare).*(dividend)/i, command: 'can I declare dividend?' },

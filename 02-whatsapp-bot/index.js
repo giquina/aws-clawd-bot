@@ -1203,11 +1203,17 @@ async function processMessageForTelegram(incomingMsg, context) {
                         }
                     }
 
-                    // New voice instruction - create a plan if complex enough
-                    const planningKeywords = ['first', 'then', 'after that', 'next', 'finally', 'also', 'and then', 'step', 'create', 'build', 'implement', 'add', 'want', 'need', 'should'];
+                    // New voice instruction - detect if it's a development/coding instruction
+                    const codingKeywords = ['add', 'create', 'build', 'implement', 'make', 'change', 'update', 'modify', 'fix', 'remove', 'delete', 'move', 'replace', 'redesign', 'refactor', 'style', 'integrate', 'connect', 'optimize', 'improve'];
+                    const codingContextWords = ['page', 'component', 'feature', 'button', 'nav', 'navigation', 'sidebar', 'header', 'footer', 'form', 'modal', 'layout', 'design', 'app', 'site', 'api', 'endpoint', 'function', 'database', 'table', 'screen', 'view', 'section', 'bar', 'menu'];
+                    const hasCodingKeyword = codingKeywords.some(kw => transcript.toLowerCase().includes(kw));
+                    const hasCodingContext = codingContextWords.some(kw => transcript.toLowerCase().includes(kw));
+                    const isCodingInstruction = hasCodingKeyword && hasCodingContext;
+
+                    const planningKeywords = ['first', 'then', 'after that', 'next', 'finally', 'also', 'and then', 'step'];
                     const hasKeywords = planningKeywords.some(kw => transcript.toLowerCase().includes(kw));
 
-                    if (wordCount > 25 || (wordCount > 15 && hasKeywords)) {
+                    if (isCodingInstruction || wordCount > 25 || (wordCount > 15 && hasKeywords)) {
                         console.log(`[VoicePlan] Complex instruction detected (${wordCount} words), creating plan...`);
                         activityLog.log('activity', 'voice', `Voice transcribed (${wordCount} words). Creating plan with AI...`, { userId, wordCount });
 
