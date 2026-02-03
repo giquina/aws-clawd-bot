@@ -932,6 +932,7 @@ async function processMessageForTelegram(incomingMsg, context) {
                 chatId,
                 platform: 'telegram',
                 mediaUrl,
+                mediaContentType,
                 numMedia: numMedia || 0,
                 autoRepo,
                 autoCompany,
@@ -941,7 +942,38 @@ async function processMessageForTelegram(incomingMsg, context) {
             const skillResult = await skillRegistry.route(processedMsg, skillContext);
 
             if (skillResult.handled) {
-                const responseText = skillResult.success ? skillResult.message : `❌ ${skillResult.message}`;
+                let responseText = skillResult.success ? skillResult.message : `❌ ${skillResult.message}`;
+
+                // If this was a voice transcription, check if it's complex enough for a plan
+                if (mediaContentType?.startsWith('audio/') && skillResult.success && skillResult.data?.transcription) {
+                    const transcript = skillResult.data.transcription;
+                    const wordCount = transcript.split(/\s+/).length;
+
+                    // Complex voice instructions (50+ words or has planning keywords)
+                    const planningKeywords = ['first', 'then', 'after that', 'next', 'finally', 'also', 'and then', 'step', 'create', 'build', 'implement', 'add', 'multiple', 'several'];
+                    const hasKeywords = planningKeywords.some(kw => transcript.toLowerCase().includes(kw));
+
+                    if (wordCount > 40 || (wordCount > 20 && hasKeywords)) {
+                        console.log(`[VoicePlan] Complex instruction detected (${wordCount} words), creating plan...`);
+
+                        try {
+                            const planResponse = await aiHandler.processQuery(
+                                `You are a task planner. A user sent a voice note with these instructions:\n\n"${transcript}"\n\nCreate a structured execution plan:\n\n` +
+                                `📋 *Summary:* [one sentence]\n\n` +
+                                `*Tasks:*\n1. [specific actionable task]\n2. [task]\n...\n\n` +
+                                `*Projects affected:* [which repos]\n\n` +
+                                `*Questions:* [anything unclear?]\n\n` +
+                                `Reply "yes" to execute, "no" to cancel, or answer my questions.`,
+                                { userId, taskType: 'planning' }
+                            );
+
+                            responseText = `🎤 *Voice Instruction Received*\n_${wordCount} words transcribed_\n\n${planResponse}`;
+                        } catch (err) {
+                            console.error('[VoicePlan] Error creating plan:', err.message);
+                        }
+                    }
+                }
+
                 if (memory) {
                     memory.saveMessage(userId, 'assistant', responseText);
                 }
@@ -955,6 +987,7 @@ async function processMessageForTelegram(incomingMsg, context) {
                 userId,
                 platform: 'telegram',
                 mediaUrl,
+                mediaContentType,
                 projectContext: activeProject?.getActiveProject(userId),
                 autoRepo,
                 autoCompany
