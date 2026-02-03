@@ -33,6 +33,20 @@ class SmartRouter {
       return this.applyAutoContext(message, context);
     }
 
+    // Don't route conversational questions — let AI handle them naturally
+    const conversationalPatterns = [
+      /^how long/i, /^when will/i, /^what about/i, /^can you also/i,
+      /^will (it|this|that)/i, /^is (it|this|that)/i, /^what if/i,
+      /^why (is|did|does|would|should|can)/i, /^how (is|are|do|does|did|much|many)/i,
+      /^what (is|are|do|does|did|would|should|happened)/i,
+      /^(sounds good|ok |okay |got it|understood|makes sense|perfect|great|nice|cool|thanks|thank)/i,
+      /\?$/ // Any message ending with a question mark
+    ];
+    if (conversationalPatterns.some(p => p.test(message.trim()))) {
+      console.log(`[SmartRouter] Conversational message, passing through: "${message.substring(0, 40)}"`);
+      return message;
+    }
+
     // Check cache (include context in cache key for auto-context)
     const cacheKey = context.autoRepo
       ? `${message.toLowerCase()}|repo:${context.autoRepo}`
@@ -273,6 +287,8 @@ class SmartRouter {
         messages: [{
           role: 'user',
           content: `Convert this natural language to a ClawdBot command. Reply with ONLY the command, nothing else. If it doesn't match any command, reply with the original message exactly.
+
+IMPORTANT: If the message is a conversational question, follow-up, or acknowledgment (not a command), return the ORIGINAL message unchanged. Do NOT force it into a command. Examples of conversational messages that should be returned unchanged: "How long will it take?", "What about the other one?", "Can you explain more?", "Sounds good", "Thanks", "Why did that happen?", any question mark ending message that isn't clearly requesting a specific command action.
 
 Available commands:
 - deadlines, deadlines <COMPANY_CODE>

@@ -1037,16 +1037,33 @@ async function processMessageForTelegram(incomingMsg, context) {
                     if (userIntent === 'confirm') {
                         confirmationManager.confirm(userId);
                         console.log('[VoicePlan] User confirmed plan naturally');
-                        activityLog.log('activity', 'telegram', `User confirmed plan. Executing with AI...`, { userId });
+                        activityLog.log('activity', 'telegram', `User confirmed plan. Executing...`, { userId });
 
-                        const execResponse = await aiHandler.processQuery(
-                            `CONTEXT: The user gave these instructions via voice:\n"${pending.params.transcript}"\n\n` +
-                            `PLAN:\n${pending.params.plan}\n\n` +
-                            `The user confirmed with: "${userMessage}"\n\n` +
-                            `Execute the plan. For each step, explain what you're doing clearly. ` +
-                            `At the end, suggest what the user should do next. Be conversational and helpful.`,
-                            { userId, taskType: 'coding', platform: 'telegram' }
-                        );
+                        // Use PlanExecutor to actually create branches, code, and PRs
+                        let execResponse;
+                        try {
+                            const planExecutor = require('./lib/plan-executor');
+                            const { getTelegramHandler } = require('./telegram-handler');
+                            const telegram = getTelegramHandler();
+
+                            const result = await planExecutor.execute({
+                                transcript: pending.params.transcript,
+                                plan: pending.params.plan,
+                                userId,
+                                sendProgress: async (msg) => {
+                                    // Send progress updates to Telegram
+                                    activityLog.log('activity', 'executor', msg, { userId });
+                                    if (telegram.isAvailable() && chatId) {
+                                        await telegram.sendMessage(chatId, `⏳ ${msg}`);
+                                    }
+                                }
+                            });
+
+                            execResponse = result.message;
+                        } catch (execError) {
+                            console.error('[VoicePlan] Plan execution error:', execError);
+                            execResponse = `Plan execution failed: ${execError.message}\n\nThe plan was confirmed but could not be executed automatically. You can try the individual commands manually.`;
+                        }
 
                         if (memory) memory.saveMessage(userId, 'assistant', execResponse);
                         return execResponse;

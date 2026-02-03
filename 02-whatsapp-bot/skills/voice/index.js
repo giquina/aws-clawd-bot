@@ -163,11 +163,17 @@ class VoiceSkill extends BaseSkill {
         `Content-Disposition: form-data; name="response_format"\r\n\r\n` +
         `text`;
 
+      // Language part - force English to prevent misdetection
+      const langPart =
+        `\r\n--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="language"\r\n\r\n` +
+        `en`;
+
       const endBoundary = `\r\n--${boundary}--\r\n`;
 
       // Combine all parts
       const preFileBuffer = Buffer.from(formParts[0], 'utf8');
-      const postFileBuffer = Buffer.from(modelPart + formatPart + endBoundary, 'utf8');
+      const postFileBuffer = Buffer.from(modelPart + formatPart + langPart + endBoundary, 'utf8');
       const fullBody = Buffer.concat([preFileBuffer, audioBuffer, postFileBuffer]);
 
       const options = {
