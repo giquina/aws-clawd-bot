@@ -1197,8 +1197,62 @@ async function processMessageForTelegram(incomingMsg, context) {
                             }
 
                             responseText = planResponse;
+                            if (memory) memory.saveMessage(userId, 'assistant', responseText);
+                            return responseText;
                         } catch (err) {
                             console.error('[VoicePlan] Error creating plan:', err.message);
+                        }
+                    } else {
+                        // SHORT VOICE COMMAND: Re-route transcribed text through skills & AI
+                        // e.g. "list my repos", "status", "deploy clawd-bot"
+                        console.log(`[Voice] Short command (${wordCount} words), executing: "${transcript.substring(0, 60)}"`);
+                        activityLog.log('activity', 'voice', `Voice transcribed: "${transcript.substring(0, 60)}". Executing as command...`, { userId, wordCount });
+
+                        // Run through smart router (hooks) to convert natural language to commands
+                        let routedCommand = transcript;
+                        if (hooks) {
+                            const hookContext = {
+                                userId,
+                                chatId,
+                                platform: 'telegram',
+                                autoRepo,
+                                autoCompany
+                            };
+                            routedCommand = await hooks.preprocess(transcript, hookContext);
+                            if (routedCommand !== transcript) {
+                                console.log(`[Voice] Smart router: "${transcript}" → "${routedCommand}"`);
+                            }
+                        }
+
+                        // Try skill routing with the routed command
+                        const voiceSkillContext = {
+                            userId,
+                            chatId,
+                            platform: 'telegram',
+                            autoRepo,
+                            autoCompany,
+                            activeProject: activeProject?.getActiveProject(userId)
+                        };
+
+                        const voiceSkillResult = await skillRegistry.route(routedCommand, voiceSkillContext);
+
+                        if (voiceSkillResult.handled) {
+                            responseText = voiceSkillResult.success ? voiceSkillResult.message : `❌ ${voiceSkillResult.message}`;
+                            if (memory) memory.saveMessage(userId, 'assistant', responseText);
+                            return responseText;
+                        }
+
+                        // No skill matched - fall back to AI handler
+                        if (aiHandler) {
+                            const aiResponse = await aiHandler.processQuery(transcript, {
+                                userId,
+                                platform: 'telegram',
+                                projectContext: activeProject?.getActiveProject(userId),
+                                autoRepo,
+                                autoCompany
+                            });
+                            if (memory) memory.saveMessage(userId, 'assistant', aiResponse);
+                            return aiResponse;
                         }
                     }
                 }

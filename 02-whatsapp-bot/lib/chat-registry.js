@@ -486,7 +486,7 @@ function getChatsForCompany(companyCode) {
  * @returns {string[]} Array of chat IDs to notify
  */
 function getNotificationTargets(repoName, isCritical = false) {
-  const chatIds = [];
+  const targets = [];
   const normalizedRepo = repoName.toLowerCase();
 
   for (const [chatId, reg] of registrations.entries()) {
@@ -499,17 +499,17 @@ function getNotificationTargets(repoName, isCritical = false) {
 
     // HQ chats get all notifications
     if (reg.type === CONTEXT_TYPES.HQ) {
-      chatIds.push(chatId);
+      targets.push(reg);
       continue;
     }
 
     // Repo chats only get notifications for their repo
     if (reg.type === CONTEXT_TYPES.REPO && reg.value === normalizedRepo) {
-      chatIds.push(chatId);
+      targets.push(reg);
     }
   }
 
-  return chatIds;
+  return targets;
 }
 
 /**

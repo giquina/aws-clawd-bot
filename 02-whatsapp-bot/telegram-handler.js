@@ -162,8 +162,26 @@ class TelegramHandler {
                 console.log(`✅ Telegram webhook set: ${webhookUrl}`);
             } else {
                 // Development mode: use long-polling (no SSL required)
+                // Delete any existing webhook first to avoid conflicts
+                await this.bot.telegram.deleteWebhook({ drop_pending_updates: false });
                 console.log('📡 Telegram using long-polling (no webhook URL provided)');
-                this.bot.launch();
+
+                // Launch with error handling - bot.launch() returns a promise
+                this.bot.launch({
+                    dropPendingUpdates: false,
+                    allowedUpdates: ['message', 'edited_message', 'callback_query']
+                }).then(() => {
+                    console.log('✅ Telegram long-polling started successfully');
+                }).catch(err => {
+                    console.error('❌ Telegram long-polling failed:', err.message);
+                    // Retry after 5 seconds
+                    setTimeout(() => {
+                        console.log('🔄 Retrying Telegram long-polling...');
+                        this.bot.launch({ dropPendingUpdates: false }).catch(e => {
+                            console.error('❌ Telegram retry failed:', e.message);
+                        });
+                    }, 5000);
+                });
 
                 // Graceful shutdown handlers
                 process.once('SIGINT', () => this.bot?.stop('SIGINT'));
