@@ -182,7 +182,7 @@ function registerDefaultHQChats() {
     console.log(`[ChatRegistry] Auto-registered Telegram HQ: ${telegramHQ}`);
   }
 
-  // WhatsApp HQ
+  // WhatsApp HQ — critical only (saves daily message quota for important alerts)
   const whatsappHQ = process.env.YOUR_WHATSAPP;
   if (whatsappHQ && !registrations.has(whatsappHQ)) {
     const entry = {
@@ -190,7 +190,7 @@ function registerDefaultHQChats() {
       platform: 'whatsapp',
       type: CONTEXT_TYPES.HQ,
       value: null,
-      notificationLevel: NOTIFICATION_LEVELS.ALL,
+      notificationLevel: NOTIFICATION_LEVELS.CRITICAL,
       name: 'WhatsApp HQ',
       isDefault: true,
       registeredAt: new Date().toISOString(),
@@ -198,7 +198,7 @@ function registerDefaultHQChats() {
     };
     registrations.set(whatsappHQ, entry);
     addToIndexes(whatsappHQ, entry);
-    console.log(`[ChatRegistry] Auto-registered WhatsApp HQ: ${whatsappHQ}`);
+    console.log(`[ChatRegistry] Auto-registered WhatsApp HQ (critical only): ${whatsappHQ}`);
   }
 }
 

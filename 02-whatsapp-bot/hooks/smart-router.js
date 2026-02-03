@@ -270,6 +270,12 @@ class SmartRouter {
       { match: /restart\s+(.+)/i, command: (m) => `restart ${m[1].trim()}` },
       { match: /rebuild\s+(.+)/i, command: (m) => `build ${m[1].trim()}` },
 
+      // === VERCEL DEPLOY ===
+      { match: /deploy\s+(\S+)\s+to\s+vercel/i, command: (m) => `vercel deploy ${m[1].trim()}` },
+      { match: /vercel\s+deploy\s+(\S+)/i, command: (m) => `vercel deploy ${m[1].trim()}` },
+      { match: /push\s+(\S+)\s+to\s+vercel/i, command: (m) => `vercel deploy ${m[1].trim()}` },
+      { match: /preview\s+(\S+)\s+on\s+vercel/i, command: (m) => `vercel preview ${m[1].trim()}` },
+
       // === VOICE COMMANDS ===
       { match: /what\s+(do\s+i\s+)?need\s+to\s+do\s+(for\s+)?(.+)?/i, command: (m) => m[3] ? `project status ${m[3].trim()}` : 'project status' },
       { match: /what('?s| is)\s+the\s+status\s+(of\s+)?(.+)?/i, command: (m) => m[3] ? `project status ${m[3].trim()}` : 'status' },
@@ -326,6 +332,7 @@ Available commands:
 - my repos, switch to <repo>, active project
 - run tests <repo>, deploy <repo>, logs <repo>
 - restart <repo>, build <repo>, install <repo>
+- vercel deploy <repo>, vercel preview <repo>
 
 Company codes: GMH, GACC, GCAP, GQCARS, GSPV${contextHint}
 

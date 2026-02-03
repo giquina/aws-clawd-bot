@@ -675,6 +675,22 @@ app.post('/voice/status', (req, res) => {
 // ================================================
 
 // GitHub webhook endpoint - receives events and forwards to appropriate chats
+// Dedup cache for GitHub webhook delivery IDs (prevents duplicate notifications)
+const recentDeliveryIds = new Map();
+function isDeduplicateWebhook(deliveryId) {
+    if (!deliveryId) return false;
+    if (recentDeliveryIds.has(deliveryId)) return true;
+    recentDeliveryIds.set(deliveryId, Date.now());
+    // Clean old entries (keep last 5 minutes)
+    if (recentDeliveryIds.size > 200) {
+        const cutoff = Date.now() - 5 * 60 * 1000;
+        for (const [id, time] of recentDeliveryIds) {
+            if (time < cutoff) recentDeliveryIds.delete(id);
+        }
+    }
+    return false;
+}
+
 app.post('/github-webhook', async (req, res) => {
     try {
         const eventType = req.headers['x-github-event'];
@@ -683,6 +699,12 @@ app.post('/github-webhook', async (req, res) => {
         const repoName = req.body.repository?.name || 'unknown';
 
         console.log(`[${new Date().toISOString()}] GitHub webhook: ${eventType} from ${repoName} (${deliveryId})`);
+
+        // Deduplicate: skip if we already processed this delivery
+        if (isDeduplicateWebhook(deliveryId)) {
+            console.log(`[GitHub Webhook] Duplicate delivery ${deliveryId}, skipping`);
+            return res.json({ status: 'duplicate', deliveryId });
+        }
 
         // Verify signature if secret is configured
         if (!githubWebhook.verifySignature(req.rawBody || JSON.stringify(req.body), signature)) {

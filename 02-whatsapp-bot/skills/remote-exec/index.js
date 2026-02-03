@@ -96,6 +96,16 @@ class RemoteExecSkill extends BaseSkill {
       usage: 'remote commands'
     },
     {
+      pattern: /^vercel\s+deploy\s+(\S+)$/i,
+      description: 'Deploy project to Vercel production',
+      usage: 'vercel deploy <repo>'
+    },
+    {
+      pattern: /^vercel\s+preview\s+(\S+)$/i,
+      description: 'Deploy project to Vercel preview',
+      usage: 'vercel preview <repo>'
+    },
+    {
       pattern: /^confirm\s+(\S+)$/i,
       description: 'Confirm a pending operation',
       usage: 'confirm <id>'
@@ -151,6 +161,18 @@ class RemoteExecSkill extends BaseSkill {
       if (/^install\s+(\S+)$/i.test(raw)) {
         const match = raw.match(/^install\s+(\S+)$/i);
         return await this.install(match[1], context);
+      }
+
+      // Vercel deploy (production)
+      if (/^vercel\s+deploy\s+(\S+)$/i.test(raw)) {
+        const match = raw.match(/^vercel\s+deploy\s+(\S+)$/i);
+        return await this.vercelDeploy(match[1], true, context);
+      }
+
+      // Vercel preview
+      if (/^vercel\s+preview\s+(\S+)$/i.test(raw)) {
+        const match = raw.match(/^vercel\s+preview\s+(\S+)$/i);
+        return await this.vercelDeploy(match[1], false, context);
       }
 
       // Generic exec
@@ -343,6 +365,89 @@ class RemoteExecSkill extends BaseSkill {
       response += `\n\`\`\`\n${this.truncateOutput(result.error, 2000)}\n\`\`\``;
 
       this.logAudit('deploy', repo, 'failed', context);
+      return this.error(response);
+    }
+  }
+
+  /**
+   * Deploy a project to Vercel
+   */
+  async vercelDeploy(repoName, isProduction, context) {
+    const repo = sanitizeArgument(repoName);
+    const projectPath = getProjectPath(repo);
+
+    if (!projectPath.valid) {
+      return this.error(projectPath.error);
+    }
+
+    if (!process.env.VERCEL_TOKEN) {
+      return this.error('Vercel token not configured. Set VERCEL_TOKEN in environment.');
+    }
+
+    if (isProduction) {
+      // Production deploys require confirmation
+      const confirmId = this.createPendingConfirmation({
+        action: 'vercel-deploy',
+        repo,
+        projectPath: projectPath.path,
+        isProduction,
+        context
+      });
+
+      let response = `🔺 *Vercel Deploy: ${repo}*\n`;
+      response += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+      response += `⚠️ This will deploy to **production**.\n\n`;
+      response += `Project: ${projectPath.path}\n`;
+      response += `Environment: production\n\n`;
+      response += `To proceed, reply:\n`;
+      response += `\`confirm ${confirmId}\`\n\n`;
+      response += `To cancel:\n`;
+      response += `\`cancel ${confirmId}\``;
+
+      return this.success(response);
+    }
+
+    // Preview deploys don't need confirmation
+    return await this.executeVercelDeploy({ repo, projectPath: projectPath.path, isProduction, context });
+  }
+
+  /**
+   * Execute the Vercel deploy
+   */
+  async executeVercelDeploy(pending) {
+    const { repo, projectPath, isProduction, context } = pending;
+
+    this.log('info', `Deploying ${repo} to Vercel${isProduction ? ' (production)' : ' (preview)'}`);
+
+    const startTime = Date.now();
+    const prodFlag = isProduction ? ' --prod' : '';
+    const cmd = `vercel${prodFlag} --token ${process.env.VERCEL_TOKEN} --yes`;
+
+    const result = await this.executeCommand(cmd, projectPath, 180000);
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    if (result.success) {
+      // Extract URL from Vercel output
+      const urlMatch = result.output.match(/(https:\/\/[^\s]+\.vercel\.app)/);
+      const deployUrl = urlMatch ? urlMatch[1] : null;
+
+      let response = `🔺 *Vercel Deploy Complete: ${repo}*\n`;
+      response += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+      response += `✅ Deployed to ${isProduction ? 'production' : 'preview'}\n`;
+      if (deployUrl) {
+        response += `🔗 URL: ${deployUrl}\n`;
+      }
+      response += `⏱️ Completed in ${duration}s\n`;
+      response += `\n\`\`\`\n${this.truncateOutput(result.output, 1500)}\n\`\`\``;
+
+      this.logAudit('vercel-deploy', repo, 'success', context);
+      return this.success(response);
+    } else {
+      let response = `❌ *Vercel Deploy Failed: ${repo}*\n\n`;
+      response += `⏱️ Duration: ${duration}s\n`;
+      response += `\n\`\`\`\n${this.truncateOutput(result.error, 2000)}\n\`\`\``;
+
+      this.logAudit('vercel-deploy', repo, 'failed', context);
       return this.error(response);
     }
   }
@@ -756,6 +861,8 @@ class RemoteExecSkill extends BaseSkill {
     switch (pending.action) {
       case 'deploy':
         return await this.executeDeployment(pending);
+      case 'vercel-deploy':
+        return await this.executeVercelDeploy(pending);
       case 'restart':
         return await this.executeRestart(pending);
       case 'install':

@@ -188,6 +188,20 @@ const ALLOWED_COMMANDS = {
     timeout: 10000,
     requiresConfirmation: false,
     description: 'Health check endpoint'
+  },
+
+  // Vercel deploy
+  'vercel deploy': {
+    pattern: /^vercel\s+--prod(\s+--token\s+\S+)?$/i,
+    timeout: 180000,
+    requiresConfirmation: true,
+    description: 'Deploy to Vercel production'
+  },
+  'vercel preview': {
+    pattern: /^vercel(\s+--token\s+\S+)?$/i,
+    timeout: 180000,
+    requiresConfirmation: false,
+    description: 'Deploy Vercel preview'
   }
 };
 
