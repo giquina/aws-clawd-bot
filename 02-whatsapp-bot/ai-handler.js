@@ -36,6 +36,23 @@ try {
     console.log('[AI Handler] Project libs not yet available:', e.message);
 }
 
+// Import Context Engine (Phase 10 - Intelligence Layer)
+let contextEngine = null;
+let outcomeTracker = null;
+try {
+    contextEngine = require('./lib/context-engine');
+    console.log('[AI Handler] Context Engine loaded');
+} catch (e) {
+    console.log('[AI Handler] Context Engine not available:', e.message);
+}
+try {
+    outcomeTracker = require('./lib/outcome-tracker');
+    outcomeTracker.init();
+    console.log('[AI Handler] Outcome Tracker loaded');
+} catch (e) {
+    console.log('[AI Handler] Outcome Tracker not available:', e.message);
+}
+
 class AIHandler {
     constructor() {
         this.conversationHistory = [];
@@ -418,8 +435,9 @@ Try "help" to see what I can do! 💬`;
     /**
      * Process a user query with smart AI routing
      * @param {string} query - The user's question or command
-     * @param {Object} context - Optional context (userId, conversationHistory, etc.)
+     * @param {Object} context - Optional context (userId, conversationHistory, richContext, etc.)
      * @param {Array<{role: string, content: string}>} [context.conversationHistory] - Persistent conversation history from memory DB
+     * @param {Object} [context.richContext] - Rich context from context-engine.build()
      * @returns {Promise<string>} - AI response
      */
     async processQuery(query, context = {}) {
@@ -427,11 +445,21 @@ Try "help" to see what I can do! 💬`;
             // Initialize providers on first use
             await this.initProviders();
 
-            // Use persistent conversation history if provided, otherwise fall back to in-memory
-            const hasPersistentHistory = context.conversationHistory && context.conversationHistory.length > 0;
-            const historyForProvider = hasPersistentHistory
-                ? context.conversationHistory
-                : this.conversationHistory.slice(); // copy of in-memory history
+            // === CONTEXT ENGINE INTEGRATION ===
+            // If richContext was provided by the caller (from context-engine.build()),
+            // use its conversation history and inject its awareness into the system prompt.
+            const richCtx = context.richContext || null;
+
+            // Use persistent conversation history: richContext > explicit > in-memory
+            let historyForProvider;
+            if (richCtx && richCtx.conversationHistory && richCtx.conversationHistory.length > 0) {
+                historyForProvider = richCtx.conversationHistory;
+            } else if (context.conversationHistory && context.conversationHistory.length > 0) {
+                historyForProvider = context.conversationHistory;
+            } else {
+                historyForProvider = this.conversationHistory.slice();
+            }
+            const hasPersistentHistory = historyForProvider.length > 0;
 
             // Add query to in-memory conversation history (only if non-empty)
             if (query && query.trim()) {
@@ -447,24 +475,27 @@ Try "help" to see what I can do! 💬`;
             }
 
             // Phase 3: Detect and fetch project context (non-blocking)
+            // Skip if richContext already provides repo context
             let projectContext = null;
-            const projectDetection = this.detectProjectInQuery(query);
-            if (projectDetection && projectDetection.confidence >= 0.5) {
-                try {
-                    projectContext = await this.getProjectContext(query, context.userId);
-                    if (projectContext) {
-                        console.log(`[AI Handler] Project context loaded for: ${projectContext.repo}`);
+            if (!richCtx || !richCtx.activeRepo) {
+                const projectDetection = this.detectProjectInQuery(query);
+                if (projectDetection && projectDetection.confidence >= 0.5) {
+                    try {
+                        projectContext = await this.getProjectContext(query, context.userId);
+                        if (projectContext) {
+                            console.log(`[AI Handler] Project context loaded for: ${projectContext.repo}`);
+                        }
+                    } catch (contextError) {
+                        console.log('[AI Handler] Project context fetch failed, continuing without:', contextError.message);
                     }
-                } catch (contextError) {
-                    console.log('[AI Handler] Project context fetch failed, continuing without:', contextError.message);
                 }
             }
 
             let aiResponse;
             let providerUsed = 'claude';
 
-            // Build system prompt with optional project context
-            const systemPrompt = this.getSystemPrompt(projectContext);
+            // Build system prompt with context engine awareness + project context
+            const systemPrompt = this.getSystemPrompt(projectContext, richCtx);
 
             // Try multi-AI routing first
             if (providerRegistry && this.providersInitialized) {
@@ -553,16 +584,31 @@ Try "help" to see what I can do! 💬`;
     /**
      * Get system prompt that defines bot behavior
      * @param {Object|null} projectContext - Optional project context to include
+     * @param {Object|null} richContext - Optional rich context from context-engine
      */
-    getSystemPrompt(projectContext = null) {
+    getSystemPrompt(projectContext = null, richContext = null) {
         const repos = (process.env.REPOS_TO_MONITOR || '').split(',').filter(Boolean);
         const githubUser = process.env.GITHUB_USERNAME || 'unknown';
 
         // Format project context if available
         const projectSection = projectContext ? this.formatProjectContext(projectContext) : '';
 
+        // Format rich context from context engine (the awareness layer)
+        let contextSection = '';
+        if (richContext && contextEngine) {
+            try {
+                contextSection = contextEngine.formatForSystemPrompt(richContext);
+                // Also append outcome history
+                if (outcomeTracker) {
+                    contextSection += outcomeTracker.formatForContext(richContext.chatId);
+                }
+            } catch (e) {
+                console.error('[AI Handler] Context format error:', e.message);
+            }
+        }
+
         return `You are ClawdBot, a powerful AI coding assistant running on Telegram and WhatsApp. You have REAL integrations and capabilities - you're not just a chatbot.
-${projectSection}
+${contextSection}${projectSection}
 
 YOUR ACTUAL CAPABILITIES:
 You are connected to GitHub (user: ${githubUser}) and can:

@@ -1267,7 +1267,7 @@ async function processMessageForTelegram(incomingMsg, context) {
                                 responseText = response;
                             }
 
-                            if (memory) memory.saveMessage(userId, 'assistant', responseText);
+                            if (memory) memory.saveMessage(chatId || userId, 'assistant', responseText);
                             return responseText;
                         }
                     }
@@ -1330,7 +1330,7 @@ async function processMessageForTelegram(incomingMsg, context) {
                             }
 
                             responseText = planResponse;
-                            if (memory) memory.saveMessage(userId, 'assistant', responseText);
+                            if (memory) memory.saveMessage(chatId || userId, 'assistant', responseText);
                             return responseText;
                         } catch (err) {
                             console.error('[VoicePlan] Error creating plan:', err.message);
@@ -1371,14 +1371,24 @@ async function processMessageForTelegram(incomingMsg, context) {
 
                         if (voiceSkillResult.handled) {
                             responseText = voiceSkillResult.success ? voiceSkillResult.message : `❌ ${voiceSkillResult.message}`;
-                            if (memory) memory.saveMessage(userId, 'assistant', responseText);
+                            if (memory) memory.saveMessage(chatId || userId, 'assistant', responseText);
                             return responseText;
                         }
 
-                        // No skill matched - fall back to AI handler
+                        // No skill matched - fall back to AI handler with context awareness
                         if (aiHandler) {
-                            // Get conversation history for context
-                            const voiceFallbackHistory = memory ? memory.getConversationForClaude(chatId || userId, 8) : [];
+                            let voiceRichCtx = null;
+                            try {
+                                const ctxEngine = require('./lib/context-engine');
+                                voiceRichCtx = await ctxEngine.build({
+                                    chatId: chatId || userId,
+                                    userId,
+                                    platform: 'telegram',
+                                    message: transcript,
+                                    autoRepo,
+                                    autoCompany,
+                                });
+                            } catch (e) { /* ignore */ }
 
                             const aiResponse = await aiHandler.processQuery(transcript, {
                                 userId,
@@ -1386,25 +1396,46 @@ async function processMessageForTelegram(incomingMsg, context) {
                                 projectContext: activeProject?.getActiveProject(userId),
                                 autoRepo,
                                 autoCompany,
-                                conversationHistory: voiceFallbackHistory
+                                richContext: voiceRichCtx,
                             });
-                            if (memory) memory.saveMessage(userId, 'assistant', aiResponse);
+                            if (memory) memory.saveMessage(chatId || userId, 'assistant', aiResponse);
                             return aiResponse;
                         }
                     }
                 }
 
                 if (memory) {
-                    memory.saveMessage(userId, 'assistant', responseText);
+                    memory.saveMessage(chatId || userId, 'assistant', responseText);
                 }
                 return responseText;
             }
         }
 
-        // FALLBACK TO AI
+        // FALLBACK TO AI — with full context awareness
         if (aiHandler) {
-            // Get conversation history for context (persistent, per-chat)
-            const fallbackHistory = memory ? memory.getConversationForClaude(chatId || userId, 8) : [];
+            // Build rich context via Context Engine (the intelligence layer)
+            let richContext = null;
+            try {
+                const contextEngine = require('./lib/context-engine');
+                richContext = await contextEngine.build({
+                    chatId: chatId || userId,
+                    userId,
+                    platform: 'telegram',
+                    message: processedMsg,
+                    autoRepo,
+                    autoCompany,
+                });
+                if (richContext) {
+                    console.log(`[ContextEngine] Built in ${richContext.buildTimeMs}ms (history: ${richContext.conversationHistory.length}, repo: ${richContext.activeRepo || 'none'})`);
+                }
+            } catch (ctxErr) {
+                console.error('[ContextEngine] Build failed, continuing without:', ctxErr.message);
+            }
+
+            // Fallback conversation history if context engine didn't provide it
+            const fallbackHistory = (!richContext || richContext.conversationHistory.length === 0)
+                ? (memory ? memory.getConversationForClaude(chatId || userId, 8) : [])
+                : [];
 
             const response = await aiHandler.processQuery(processedMsg, {
                 userId,
@@ -1414,11 +1445,12 @@ async function processMessageForTelegram(incomingMsg, context) {
                 projectContext: activeProject?.getActiveProject(userId),
                 autoRepo,
                 autoCompany,
-                conversationHistory: fallbackHistory
+                conversationHistory: fallbackHistory,
+                richContext,
             });
 
             if (memory) {
-                memory.saveMessage(userId, 'assistant', response);
+                memory.saveMessage(chatId || userId, 'assistant', response);
             }
             return response;
         }
@@ -1730,18 +1762,31 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
             }
         }
 
-        // Final fallback to AI (use original message for natural conversation)
+        // Final fallback to AI — with full context awareness
         if (!handled) {
-            // Include user facts in context if available
-            if (memory) {
-                const facts = memory.getFacts(userId);
-                if (facts && facts.length > 0) {
-                    const context = facts.map(f => `- ${f.fact}`).join('\n');
-                    // Could inject into system prompt here
-                }
+            // Build rich context via Context Engine
+            let richContext = null;
+            try {
+                const contextEngine = require('./lib/context-engine');
+                richContext = await contextEngine.build({
+                    chatId: userId,
+                    userId,
+                    platform,
+                    message: incomingMsg,
+                    autoRepo,
+                    autoCompany,
+                });
+            } catch (ctxErr) {
+                console.error('[ContextEngine] Build failed:', ctxErr.message);
             }
 
-            responseText = await aiHandler.processQuery(incomingMsg);
+            responseText = await aiHandler.processQuery(incomingMsg, {
+                userId,
+                platform,
+                autoRepo,
+                autoCompany,
+                richContext,
+            });
         }
 
         // Save response to memory
