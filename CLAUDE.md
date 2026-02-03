@@ -78,7 +78,7 @@ scp -i ~/.ssh/clawd-bot-key.pem 02-whatsapp-bot/index.js ubuntu@16.171.150.151:/
 ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 "pm2 restart clawd-bot"
 
 # Deploy to AWS EC2 (full)
-tar -czvf /tmp/clawd-bot.tar.gz --exclude='node_modules' --exclude='.git' .
+tar -czvf /tmp/clawd-bot.tar.gz --exclude='node_modules' --exclude='.git' --exclude='.next' --exclude='config/chat-registry.json' --exclude='config/.env.local' .
 scp -i ~/.ssh/clawd-bot-key.pem /tmp/clawd-bot.tar.gz ubuntu@16.171.150.151:/tmp/
 ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 \
   "cd /opt/clawd-bot && sudo tar -xzf /tmp/clawd-bot.tar.gz && pm2 restart clawd-bot"

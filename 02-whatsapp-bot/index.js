@@ -1225,17 +1225,34 @@ async function processMessageForTelegram(incomingMsg, context) {
                         }
                     }
 
+                    // Detect questions and simple requests — these should NOT trigger the plan system
+                    const questionPatterns = [
+                        /^(where|what|when|who|how|why|which|can you|could you|do you|is there|are there|does|did|will|would|should|have you)/i,
+                        /\b(send me|show me|give me|tell me|find me|get me)\b.*\b(link|url|address|site|website|page|location)\b/i,
+                        /\b(where is|what is|what's)\b.*\b(url|link|site|app|website|deployed|hosted|live|running)\b/i,
+                        /\?(\.|\s)*$/,  // ends with question mark
+                        /^(hey|hi|hello|yo|sup|thanks|thank you|ok|okay|got it|sure|cool|nice|great)\b/i,  // greetings/acknowledgments
+                        /\b(how long|how much|how many|what time|when will|when does|when is|how do i|how can i)\b/i,
+                        /\b(status|progress|update)\b.*\?/i,  // "what's the status?" type questions
+                    ];
+
+                    const isQuestion = questionPatterns.some(p => p.test(transcript.trim()));
+
+                    if (isQuestion) {
+                        console.log(`[Voice] Question/simple request detected, skipping plan system: "${transcript.substring(0, 60)}"`);
+                    }
+
                     // New voice instruction - detect if it's a development/coding instruction
                     const codingKeywords = ['add', 'create', 'build', 'implement', 'make', 'change', 'update', 'modify', 'fix', 'remove', 'delete', 'move', 'replace', 'redesign', 'refactor', 'style', 'integrate', 'connect', 'optimize', 'improve'];
                     const codingContextWords = ['page', 'component', 'feature', 'button', 'nav', 'navigation', 'sidebar', 'header', 'footer', 'form', 'modal', 'layout', 'design', 'app', 'site', 'api', 'endpoint', 'function', 'database', 'table', 'screen', 'view', 'section', 'bar', 'menu'];
                     const hasCodingKeyword = codingKeywords.some(kw => transcript.toLowerCase().includes(kw));
                     const hasCodingContext = codingContextWords.some(kw => transcript.toLowerCase().includes(kw));
-                    const isCodingInstruction = hasCodingKeyword && hasCodingContext;
+                    const isCodingInstruction = !isQuestion && hasCodingKeyword && hasCodingContext;
 
                     const planningKeywords = ['first', 'then', 'after that', 'next', 'finally', 'also', 'and then', 'step'];
                     const hasKeywords = planningKeywords.some(kw => transcript.toLowerCase().includes(kw));
 
-                    if (isCodingInstruction || wordCount > 25 || (wordCount > 15 && hasKeywords)) {
+                    if (!isQuestion && (isCodingInstruction || wordCount > 25 || (wordCount > 15 && hasKeywords))) {
                         console.log(`[VoicePlan] Complex instruction detected (${wordCount} words), creating plan...`);
                         activityLog.log('activity', 'voice', `Voice transcribed (${wordCount} words). Creating plan with AI...`, { userId, wordCount });
 
@@ -2100,14 +2117,9 @@ app.listen(port, '0.0.0.0', async () => {
 
                 console.log(`[Telegram] Message from ${userId}: ${text?.substring(0, 50) || '[media]'}`);
 
-                // Check authorization
-                const authorizedUsers = (process.env.TELEGRAM_AUTHORIZED_USERS || '').split(',').map(id => id.trim());
-                const hqChatId = process.env.TELEGRAM_HQ_CHAT_ID;
-
-                if (!authorizedUsers.includes(String(userId)) && String(userId) !== hqChatId) {
-                    console.log(`[Telegram] Unauthorized user: ${userId}`);
-                    return 'Sorry, you are not authorized to use this bot.';
-                }
+                // Authorization is already checked in telegram-handler.js (isAuthorized)
+                // which covers: individual users, HQ chat, and registered group chats
+                // No duplicate check needed here
 
                 // Build context similar to WhatsApp
                 const context = {

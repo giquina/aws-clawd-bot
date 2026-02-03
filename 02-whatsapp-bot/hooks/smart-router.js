@@ -27,24 +27,39 @@ class SmartRouter {
    * @returns {Promise<string>} The routed command
    */
   async route(message, context = {}) {
+    // === PASSTHROUGH GUARD ===
+    // Messages that should ALWAYS go to AI handler, never routed to skills
+    const passthroughPatterns = [
+      // Greetings and social
+      /^(hey|hi|hello|yo|sup|hiya|morning|evening|afternoon|good\s+(morning|evening|afternoon|night))(\s|!|,|\.)*$/i,
+      /^(thanks|thank you|cheers|ta|thx|ty)(\s|!|\.)*$/i,
+      /^(ok|okay|sure|cool|nice|great|awesome|perfect|got it|understood|alright|no worries)(\s|!|\.)*$/i,
+      /^(yes|no|yeah|nah|yep|nope|yea|na)(\s|!|\.)*$/i,
+
+      // Questions (start with question words)
+      /^(where|what|when|who|how|why|which)\s/i,
+      /^(can you|could you|would you|will you|do you|are you|is there|is it|are there)\s/i,
+      /^(tell me|show me|send me|give me|find me|get me)\s/i,
+
+      // Conversational follow-ups
+      /^(how long|when will|what about|what if|why not|why is|how come|how do i|how can i)\s/i,
+      /^(will it|is it|does it|can it|should i|do i need)\s/i,
+      /^(and |but |also |so |then |what about )/i,
+
+      // Messages ending with question mark
+      /\?\s*$/,
+    ];
+
+    const isPassthrough = passthroughPatterns.some(p => p.test(message.trim()));
+    if (isPassthrough) {
+      console.log(`[SmartRouter] Passthrough (conversational): "${message.substring(0, 50)}"`);
+      return message; // Return unchanged — AI handler will process it
+    }
+
     // Skip if already looks like a command
     if (this.looksLikeCommand(message)) {
       // Even for commands, apply auto-context if repo name is missing
       return this.applyAutoContext(message, context);
-    }
-
-    // Don't route conversational questions — let AI handle them naturally
-    const conversationalPatterns = [
-      /^how long/i, /^when will/i, /^what about/i, /^can you also/i,
-      /^will (it|this|that)/i, /^is (it|this|that)/i, /^what if/i,
-      /^why (is|did|does|would|should|can)/i, /^how (is|are|do|does|did|much|many)/i,
-      /^what (is|are|do|does|did|would|should|happened)/i,
-      /^(sounds good|ok |okay |got it|understood|makes sense|perfect|great|nice|cool|thanks|thank)/i,
-      /\?$/ // Any message ending with a question mark
-    ];
-    if (conversationalPatterns.some(p => p.test(message.trim()))) {
-      console.log(`[SmartRouter] Conversational message, passing through: "${message.substring(0, 40)}"`);
-      return message;
     }
 
     // Don't route coding/development instructions — let AI handle them
@@ -234,18 +249,11 @@ class SmartRouter {
       { match: /workflow\s*status/i, command: 'workflows' },
 
       // === GENERAL / HELP ===
-      { match: /(what|how).*(can you|do you)\s*do/i, command: 'help' },
+      // NOTE: Greetings (hi, hello, good morning) and generic questions
+      // (how are you, what can you do) are handled by the passthrough guard
+      // at the top of route() — they go to the AI handler, not to skills.
       { match: /what\s*commands/i, command: 'help' },
-      { match: /what.*(capabilities|features|skills)/i, command: 'help' },
       { match: /show.*help/i, command: 'help' },
-      { match: /^(hi|hello|hey|yo|sup)$/i, command: 'status' },
-      { match: /good\s*(morning|afternoon|evening)/i, command: 'status' },
-      { match: /how.*you/i, command: 'status' },
-
-      // === GITHUB/CLAUDE QUESTIONS (common) ===
-      { match: /what.*(github|claude|ai).*(do|can)/i, command: 'help' },
-      { match: /(tell|show|explain).*(github|claude)/i, command: 'help' },
-      { match: /github.*(features|commands|help)/i, command: 'help' },
 
       // === PROJECT CONTEXT ===
       { match: /what.*(left|remaining|todo).*(on|for|in)\s+(.+)/i, command: (m) => `project status ${m[3].trim()}` },
