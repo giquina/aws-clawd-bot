@@ -35,7 +35,7 @@ cd /opt/clawd-bot
 echo "📥 Pulling latest code..."
 git pull origin master
 echo "📦 Installing dependencies..."
-cd 02-whatsapp-bot
+cd 02-bot
 npm install --production
 npm rebuild better-sqlite3 2>/dev/null || true
 echo "🔄 Restarting..."

@@ -25,18 +25,18 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: 02-whatsapp-bot/package-lock.json
+          cache-dependency-path: 02-bot/package-lock.json
 
       - name: Install dependencies
-        working-directory: 02-whatsapp-bot
+        working-directory: 02-bot
         run: npm ci
 
       - name: Run security audit
-        working-directory: 02-whatsapp-bot
+        working-directory: 02-bot
         run: npm audit --audit-level=high
 
       - name: Check for outdated packages
-        working-directory: 02-whatsapp-bot
+        working-directory: 02-bot
         run: npm outdated || true
 
   notify-on-failure:
@@ -56,7 +56,7 @@ jobs:
             The daily security audit has detected high severity vulnerabilities.
 
             **Action Required:**
-            1. Run \`npm audit\` in \`02-whatsapp-bot/\` to see details
+            1. Run \`npm audit\` in \`02-bot/\` to see details
             2. Run \`npm audit fix\` to attempt automatic fixes
             3. If automatic fix fails, manually update the affected packages
 

@@ -2,7 +2,7 @@
   "mcpServers": {
     "clawdbot": {
       "command": "node",
-      "args": ["C:/Giquina-Projects/aws-clawd-bot/02-whatsapp-bot/mcp-server/index.js"],
+      "args": ["C:/Giquina-Projects/aws-clawd-bot/02-bot/mcp-server/index.js"],
       "env": {
         "CLAWDBOT_URL": "http://16.171.150.151:3000",
         "CLAWDBOT_API_KEY": "clawdbot-791853869eab32fdb464742749c3f333"

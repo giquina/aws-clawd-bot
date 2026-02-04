@@ -28,7 +28,7 @@ package-lock.json
 
 # Logs (but not dashboard app/logs page)
 /logs/
-02-whatsapp-bot/logs/
+02-bot/logs/
 *.log
 *.log.*
 
@@ -79,7 +79,7 @@ test-clawd.db
 local-config.json
 
 # Runtime data (autonomous agent, reports)
-02-whatsapp-bot/data/
+02-bot/data/
 data/
 
 # Windows artifacts

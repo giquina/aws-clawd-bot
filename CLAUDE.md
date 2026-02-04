@@ -11,8 +11,8 @@ ClawdBot v2.5 is a **Claude Code Agent** running 24/7 on AWS EC2, controllable v
 ## Commands
 
 ```bash
-# Development (all commands run from 02-whatsapp-bot/)
-cd 02-whatsapp-bot && npm install
+# Development (all commands run from 02-bot/)
+cd 02-bot && npm install
 npm run dev                    # Development with nodemon auto-reload
 npm start                      # Production mode
 npm test                       # Run test suite (scripts/test-bot.js)
@@ -29,7 +29,7 @@ aws ec2-instance-connect send-ssh-public-key \
   --instance-os-user ubuntu \
   --ssh-public-key file://~/.ssh/clawd-bot-key.pem.pub \
   --region eu-north-1
-scp -i ~/.ssh/clawd-bot-key.pem 02-whatsapp-bot/index.js ubuntu@16.171.150.151:/opt/clawd-bot/02-whatsapp-bot/
+scp -i ~/.ssh/clawd-bot-key.pem 02-bot/index.js ubuntu@16.171.150.151:/opt/clawd-bot/02-bot/
 ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 "pm2 restart clawd-bot"
 
 # View EC2 logs
@@ -202,11 +202,11 @@ module.exports = MySkill;
 ### Core
 | File | Purpose |
 |------|---------|
-| `02-whatsapp-bot/index.js` | Express server, all webhook handlers, message processing pipeline |
-| `02-whatsapp-bot/ai-handler.js` | Multi-AI router, system prompt builder, context engine integration |
-| `02-whatsapp-bot/telegram-handler.js` | Telegram Bot API (Telegraf), auth, long-polling setup |
-| `02-whatsapp-bot/github-webhook.js` | GitHub event formatter, webhook dedup (5-min delivery ID cache) |
-| `02-whatsapp-bot/voice-handler.js` | Twilio Voice calling (TwiML, speech recognition) |
+| `02-bot/index.js` | Express server, all webhook handlers, message processing pipeline |
+| `02-bot/ai-handler.js` | Multi-AI router, system prompt builder, context engine integration |
+| `02-bot/telegram-handler.js` | Telegram Bot API (Telegraf), auth, long-polling setup |
+| `02-bot/github-webhook.js` | GitHub event formatter, webhook dedup (5-min delivery ID cache) |
+| `02-bot/voice-handler.js` | Twilio Voice calling (TwiML, speech recognition) |
 
 ### Intelligence Layer
 | File | Purpose |

@@ -57,7 +57,7 @@ git clone https://github.com/giquina/aws-clawd-bot.git
 cd aws-clawd-bot
 
 # Install dependencies
-cd 02-whatsapp-bot
+cd 02-bot
 npm install
 
 # Configure environment
@@ -185,7 +185,7 @@ GitHub Events --> /github-webhook --> Alert Escalation (Telegram → WhatsApp �
 
 ```
 aws-clawd-bot/
-├── 02-whatsapp-bot/           # Main application
+├── 02-bot/           # Main application
 │   ├── index.js               # Express server & webhook handlers
 │   ├── ai-handler.js          # Multi-AI router, project context
 │   ├── telegram-handler.js    # Telegram Bot API integration
@@ -351,7 +351,7 @@ Skills receive a context object with:
 ### Local Development
 
 ```bash
-cd 02-whatsapp-bot && npm install
+cd 02-bot && npm install
 npm run dev                    # Development with nodemon auto-reload
 npm start                      # Production mode
 curl localhost:3000/health     # Health check
@@ -361,7 +361,7 @@ curl localhost:3000/health     # Health check
 
 **Quick deploy (single file):**
 ```bash
-scp -i ~/.ssh/clawd-bot-key.pem 02-whatsapp-bot/index.js ubuntu@16.171.150.151:/opt/clawd-bot/02-whatsapp-bot/
+scp -i ~/.ssh/clawd-bot-key.pem 02-bot/index.js ubuntu@16.171.150.151:/opt/clawd-bot/02-bot/
 ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 "pm2 restart clawd-bot"
 ```
 
@@ -467,7 +467,7 @@ All API endpoints require `X-API-Key` header with `CLAWDBOT_API_KEY` value.
 
 ### Memory Not Persisting
 
-1. Check `02-whatsapp-bot/memory/clawd.db` exists
+1. Check `02-bot/memory/clawd.db` exists
 2. Verify write permissions on the directory
 3. Check console for SQLite errors
 
@@ -483,7 +483,7 @@ All API endpoints require `X-API-Key` header with `CLAWDBOT_API_KEY` value.
 ### Adding New Skills
 
 1. Fork the repository
-2. Create a new skill in `02-whatsapp-bot/skills/`
+2. Create a new skill in `02-bot/skills/`
 3. Follow the skill structure from existing skills
 4. Add tests if applicable
 5. Submit a pull request
