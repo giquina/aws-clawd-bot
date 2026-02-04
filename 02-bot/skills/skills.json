@@ -25,6 +25,7 @@
     "digest",
     "overnight",
     "receipts",
+    "invoices",
     "image-analysis",
     "coder",
     "review",
@@ -46,7 +47,8 @@
     "ai-settings",
     "autonomous-config",
     "audit",
-    "backup"
+    "backup",
+    "analytics"
   ],
   "disabled": [],
   "config": {
@@ -88,6 +90,11 @@
     "digest": {},
     "overnight": {},
     "receipts": {},
+    "invoices": {
+      "defaultDueDays": 30,
+      "defaultCurrency": "GBP",
+      "pdfFormat": "text"
+    },
     "image-analysis": {},
     "coder": {},
     "review": {},
@@ -169,6 +176,11 @@
       "encryptionAlgorithm": "aes-256-gcm",
       "maskLength": 4,
       "auditRetentionDays": 90
+    },
+    "analytics": {
+      "cacheTTLMinutes": 5,
+      "defaultPeriod": "week",
+      "maxCacheEntries": 20
     }
   }
 }

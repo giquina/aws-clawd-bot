@@ -173,6 +173,55 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_secrets_audit_secret ON secrets_audit(secret_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_secrets_audit_user ON secrets_audit(user_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_secrets_audit_date ON secrets_audit(date(created_at));
+
+  -- Invoices
+  CREATE TABLE IF NOT EXISTS invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    invoice_number TEXT UNIQUE NOT NULL,
+    client_name TEXT NOT NULL,
+    amount REAL NOT NULL,
+    currency TEXT DEFAULT 'GBP',
+    status TEXT DEFAULT 'draft',
+    due_date DATE,
+    pdf_path TEXT,
+    sent_at DATETIME,
+    paid_at DATETIME,
+    user_id TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_invoices_user ON invoices(user_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status);
+  CREATE INDEX IF NOT EXISTS idx_invoices_number ON invoices(invoice_number);
+
+  -- Budgets
+  CREATE TABLE IF NOT EXISTS budgets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    amount REAL NOT NULL,
+    currency TEXT DEFAULT 'GBP',
+    period TEXT DEFAULT 'monthly',
+    user_id TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_budgets_user ON budgets(user_id);
+  CREATE INDEX IF NOT EXISTS idx_budgets_category ON budgets(category);
+
+  -- Recurring Expenses
+  CREATE TABLE IF NOT EXISTS recurring_expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT NOT NULL,
+    amount REAL NOT NULL,
+    currency TEXT DEFAULT 'GBP',
+    frequency TEXT NOT NULL,
+    next_date DATE NOT NULL,
+    category TEXT,
+    user_id TEXT NOT NULL,
+    active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_recurring_user ON recurring_expenses(user_id, active);
+  CREATE INDEX IF NOT EXISTS idx_recurring_next_date ON recurring_expenses(next_date);
 `;
 
 // ---------------------------------------------------------------------------
@@ -1005,6 +1054,378 @@ function getSecretAuditHistory(secretName, limit = 20) {
 }
 
 // ---------------------------------------------------------------------------
+// Invoices
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate a unique invoice number in format INV-YYYYMM-NNN.
+ * @param {string} userId
+ * @returns {string}
+ */
+function generateInvoiceNumber(userId) {
+  if (!db) return `INV-${new Date().toISOString().slice(0, 7).replace('-', '')}-001`;
+
+  try {
+    const yearMonth = new Date().toISOString().slice(0, 7).replace('-', ''); // YYYYMM
+    const prefix = `INV-${yearMonth}-`;
+
+    // Get the highest invoice number for this month
+    const lastInvoice = db.prepare(
+      "SELECT invoice_number FROM invoices WHERE invoice_number LIKE ? ORDER BY invoice_number DESC LIMIT 1"
+    ).get(`${prefix}%`);
+
+    if (!lastInvoice) {
+      return `${prefix}001`;
+    }
+
+    // Extract the sequence number and increment
+    const lastSeq = parseInt(lastInvoice.invoice_number.split('-')[2]);
+    const nextSeq = String(lastSeq + 1).padStart(3, '0');
+    return `${prefix}${nextSeq}`;
+  } catch (err) {
+    console.error('[Database] generateInvoiceNumber error:', err.message);
+    return `INV-${new Date().toISOString().slice(0, 7).replace('-', '')}-001`;
+  }
+}
+
+/**
+ * Save a new invoice.
+ * @param {string} userId
+ * @param {{ clientName: string, amount: number, currency?: string, dueDate?: string }} data
+ * @returns {{ id: number, invoiceNumber: string } | null}
+ */
+function saveInvoice(userId, { clientName, amount, currency = 'GBP', dueDate = null }) {
+  if (!db) return null;
+  try {
+    const invoiceNumber = generateInvoiceNumber(userId);
+
+    // If no due date provided, default to 30 days from now
+    const calculatedDueDate = dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const stmt = db.prepare(
+      'INSERT INTO invoices (invoice_number, client_name, amount, currency, due_date, user_id) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    const info = stmt.run(invoiceNumber, clientName, amount, currency, calculatedDueDate, String(userId));
+    return { id: Number(info.lastInsertRowid), invoiceNumber };
+  } catch (err) {
+    console.error('[Database] saveInvoice error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Get an invoice by ID or invoice number.
+ * @param {number|string} idOrNumber - Invoice ID or invoice number
+ * @returns {object|null}
+ */
+function getInvoice(idOrNumber) {
+  if (!db) return null;
+  try {
+    if (typeof idOrNumber === 'number') {
+      return db.prepare('SELECT * FROM invoices WHERE id = ?').get(idOrNumber) || null;
+    } else {
+      return db.prepare('SELECT * FROM invoices WHERE invoice_number = ?').get(idOrNumber) || null;
+    }
+  } catch (err) {
+    console.error('[Database] getInvoice error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * List invoices for a user, optionally filtered by status.
+ * @param {string} userId
+ * @param {string|null} [status=null] - Filter by status (draft, sent, paid)
+ * @param {number} [limit=50]
+ * @returns {Array<{ id: number, invoice_number: string, client_name: string, amount: number, currency: string, status: string, due_date: string, created_at: string }>}
+ */
+function listInvoices(userId, status = null, limit = 50) {
+  if (!db) return [];
+  try {
+    if (status) {
+      return db.prepare(
+        'SELECT * FROM invoices WHERE user_id = ? AND status = ? ORDER BY created_at DESC LIMIT ?'
+      ).all(String(userId), status, limit);
+    }
+    return db.prepare(
+      'SELECT * FROM invoices WHERE user_id = ? ORDER BY created_at DESC LIMIT ?'
+    ).all(String(userId), limit);
+  } catch (err) {
+    console.error('[Database] listInvoices error:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Update an invoice status.
+ * @param {number|string} idOrNumber - Invoice ID or invoice number
+ * @param {'draft'|'sent'|'paid'|'cancelled'} status
+ * @param {{ pdfPath?: string }} [options={}]
+ * @returns {number} rows changed (0 or 1)
+ */
+function updateInvoiceStatus(idOrNumber, status, options = {}) {
+  if (!db) return 0;
+  try {
+    const sets = ['status = ?', 'updated_at = CURRENT_TIMESTAMP'];
+    const params = [status];
+
+    // Set sent_at when status changes to sent
+    if (status === 'sent' && options.sentAt !== false) {
+      sets.push('sent_at = CURRENT_TIMESTAMP');
+    }
+
+    // Set paid_at when status changes to paid
+    if (status === 'paid') {
+      sets.push('paid_at = CURRENT_TIMESTAMP');
+    }
+
+    // Add PDF path if provided
+    if (options.pdfPath) {
+      sets.push('pdf_path = ?');
+      params.push(options.pdfPath);
+    }
+
+    // Determine if we're using ID or invoice number
+    if (typeof idOrNumber === 'number') {
+      params.push(idOrNumber);
+      return db.prepare(`UPDATE invoices SET ${sets.join(', ')} WHERE id = ?`).run(...params).changes;
+    } else {
+      params.push(idOrNumber);
+      return db.prepare(`UPDATE invoices SET ${sets.join(', ')} WHERE invoice_number = ?`).run(...params).changes;
+    }
+  } catch (err) {
+    console.error('[Database] updateInvoiceStatus error:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Delete an invoice.
+ * @param {number|string} idOrNumber - Invoice ID or invoice number
+ * @returns {number} rows deleted (0 or 1)
+ */
+function deleteInvoice(idOrNumber) {
+  if (!db) return 0;
+  try {
+    if (typeof idOrNumber === 'number') {
+      return db.prepare('DELETE FROM invoices WHERE id = ?').run(idOrNumber).changes;
+    } else {
+      return db.prepare('DELETE FROM invoices WHERE invoice_number = ?').run(idOrNumber).changes;
+    }
+  } catch (err) {
+    console.error('[Database] deleteInvoice error:', err.message);
+    return 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Budgets
+// ---------------------------------------------------------------------------
+
+/**
+ * Save or update a budget for a category.
+ * @param {string} userId
+ * @param {string} category
+ * @param {number} amount
+ * @param {string} [currency='GBP']
+ * @param {string} [period='monthly']
+ * @returns {{ id: number } | null}
+ */
+function saveBudget(userId, category, amount, currency = 'GBP', period = 'monthly') {
+  if (!db) return null;
+  try {
+    // Check if budget already exists for this user/category/period
+    const existing = db.prepare(
+      'SELECT id FROM budgets WHERE user_id = ? AND category = ? AND period = ?'
+    ).get(String(userId), category, period);
+
+    if (existing) {
+      // Update existing budget
+      db.prepare(
+        'UPDATE budgets SET amount = ?, currency = ? WHERE id = ?'
+      ).run(amount, currency, existing.id);
+      return { id: existing.id };
+    } else {
+      // Insert new budget
+      const stmt = db.prepare(
+        'INSERT INTO budgets (user_id, category, amount, currency, period) VALUES (?, ?, ?, ?, ?)'
+      );
+      const info = stmt.run(String(userId), category, amount, currency, period);
+      return { id: Number(info.lastInsertRowid) };
+    }
+  } catch (err) {
+    console.error('[Database] saveBudget error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Get all budgets for a user.
+ * @param {string} userId
+ * @param {string} [period=null] - Filter by period (monthly, yearly, etc.)
+ * @returns {Array<{ id: number, category: string, amount: number, currency: string, period: string, created_at: string }>}
+ */
+function getBudgets(userId, period = null) {
+  if (!db) return [];
+  try {
+    if (period) {
+      return db.prepare(
+        'SELECT * FROM budgets WHERE user_id = ? AND period = ? ORDER BY category ASC'
+      ).all(String(userId), period);
+    }
+    return db.prepare(
+      'SELECT * FROM budgets WHERE user_id = ? ORDER BY period ASC, category ASC'
+    ).all(String(userId));
+  } catch (err) {
+    console.error('[Database] getBudgets error:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Get a specific budget for a user and category.
+ * @param {string} userId
+ * @param {string} category
+ * @param {string} [period='monthly']
+ * @returns {object|null}
+ */
+function getBudget(userId, category, period = 'monthly') {
+  if (!db) return null;
+  try {
+    return db.prepare(
+      'SELECT * FROM budgets WHERE user_id = ? AND category = ? AND period = ?'
+    ).get(String(userId), category, period) || null;
+  } catch (err) {
+    console.error('[Database] getBudget error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Delete a budget.
+ * @param {number} budgetId
+ * @returns {number} rows deleted (0 or 1)
+ */
+function deleteBudget(budgetId) {
+  if (!db) return 0;
+  try {
+    return db.prepare('DELETE FROM budgets WHERE id = ?').run(budgetId).changes;
+  } catch (err) {
+    console.error('[Database] deleteBudget error:', err.message);
+    return 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Recurring Expenses
+// ---------------------------------------------------------------------------
+
+/**
+ * Save a recurring expense.
+ * @param {string} userId
+ * @param {{ description: string, amount: number, currency?: string, frequency: string, nextDate: string, category?: string }} data
+ * @returns {{ id: number } | null}
+ */
+function saveRecurringExpense(userId, { description, amount, currency = 'GBP', frequency, nextDate, category = null }) {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare(
+      'INSERT INTO recurring_expenses (user_id, description, amount, currency, frequency, next_date, category) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    const info = stmt.run(String(userId), description, amount, currency, frequency, nextDate, category);
+    return { id: Number(info.lastInsertRowid) };
+  } catch (err) {
+    console.error('[Database] saveRecurringExpense error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Get all active recurring expenses for a user.
+ * @param {string} userId
+ * @returns {Array}
+ */
+function getRecurringExpenses(userId) {
+  if (!db) return [];
+  try {
+    return db.prepare(
+      'SELECT * FROM recurring_expenses WHERE user_id = ? AND active = 1 ORDER BY next_date ASC'
+    ).all(String(userId));
+  } catch (err) {
+    console.error('[Database] getRecurringExpenses error:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Get recurring expenses due before a certain date.
+ * @param {string} userId
+ * @param {string} beforeDate - ISO date string (YYYY-MM-DD)
+ * @returns {Array}
+ */
+function getDueRecurringExpenses(userId, beforeDate) {
+  if (!db) return [];
+  try {
+    return db.prepare(
+      'SELECT * FROM recurring_expenses WHERE user_id = ? AND active = 1 AND next_date <= ? ORDER BY next_date ASC'
+    ).all(String(userId), beforeDate);
+  } catch (err) {
+    console.error('[Database] getDueRecurringExpenses error:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Update the next date for a recurring expense.
+ * @param {number} expenseId
+ * @param {string} nextDate - ISO date string (YYYY-MM-DD)
+ * @returns {number} rows changed (0 or 1)
+ */
+function updateRecurringExpenseNextDate(expenseId, nextDate) {
+  if (!db) return 0;
+  try {
+    return db.prepare(
+      'UPDATE recurring_expenses SET next_date = ? WHERE id = ?'
+    ).run(nextDate, expenseId).changes;
+  } catch (err) {
+    console.error('[Database] updateRecurringExpenseNextDate error:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Deactivate a recurring expense (soft delete).
+ * @param {number} expenseId
+ * @returns {number} rows changed (0 or 1)
+ */
+function deactivateRecurringExpense(expenseId) {
+  if (!db) return 0;
+  try {
+    return db.prepare(
+      'UPDATE recurring_expenses SET active = 0 WHERE id = ?'
+    ).run(expenseId).changes;
+  } catch (err) {
+    console.error('[Database] deactivateRecurringExpense error:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Delete a recurring expense.
+ * @param {number} expenseId
+ * @returns {number} rows deleted (0 or 1)
+ */
+function deleteRecurringExpense(expenseId) {
+  if (!db) return 0;
+  try {
+    return db.prepare('DELETE FROM recurring_expenses WHERE id = ?').run(expenseId).changes;
+  } catch (err) {
+    console.error('[Database] deleteRecurringExpense error:', err.message);
+    return 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
 
@@ -1091,6 +1512,28 @@ module.exports = {
   incrementSecretAccess,
   logSecretAudit,
   getSecretAuditHistory,
+
+  // Invoices
+  generateInvoiceNumber,
+  saveInvoice,
+  getInvoice,
+  listInvoices,
+  updateInvoiceStatus,
+  deleteInvoice,
+
+  // Budgets
+  saveBudget,
+  getBudgets,
+  getBudget,
+  deleteBudget,
+
+  // Recurring Expenses
+  saveRecurringExpense,
+  getRecurringExpenses,
+  getDueRecurringExpenses,
+  updateRecurringExpenseNextDate,
+  deactivateRecurringExpense,
+  deleteRecurringExpense,
 
   // Utility
   getDb,
