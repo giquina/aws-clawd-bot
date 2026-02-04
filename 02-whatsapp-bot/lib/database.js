@@ -97,6 +97,27 @@ const SCHEMA = `
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
   CREATE INDEX IF NOT EXISTS idx_deploy_repo ON deployments(repo, created_at DESC);
+
+  -- Claude Code session tracking
+  CREATE TABLE IF NOT EXISTS claude_code_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    session_id TEXT UNIQUE NOT NULL,
+    repo TEXT NOT NULL,
+    task TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',
+    output_summary TEXT,
+    pr_url TEXT,
+    session_log_path TEXT,
+    pid INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME,
+    completed_at DATETIME,
+    duration_seconds INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_claude_sessions_chat ON claude_code_sessions(chat_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_claude_sessions_status ON claude_code_sessions(status);
 `;
 
 // ---------------------------------------------------------------------------
@@ -483,6 +504,97 @@ function getDeploymentHistory(repo, limit = 10) {
 }
 
 // ---------------------------------------------------------------------------
+// Claude Code Sessions
+// ---------------------------------------------------------------------------
+
+/**
+ * Save a new Claude Code session.
+ * @param {string} chatId
+ * @param {string} userId
+ * @param {{ sessionId: string, repo: string, task: string }} data
+ * @returns {{ id: number } | null}
+ */
+function saveClaudeCodeSession(chatId, userId, { sessionId, repo, task }) {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare(
+      'INSERT INTO claude_code_sessions (chat_id, user_id, session_id, repo, task) VALUES (?, ?, ?, ?, ?)'
+    );
+    const info = stmt.run(String(chatId), String(userId), sessionId, repo, task);
+    return { id: Number(info.lastInsertRowid) };
+  } catch (err) {
+    console.error('[Database] saveClaudeCodeSession error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Update an existing Claude Code session.
+ * @param {string} sessionId
+ * @param {{ status?: string, outputSummary?: string, prUrl?: string, durationSeconds?: number, pid?: number }} updates
+ * @returns {number} rows changed (0 or 1)
+ */
+function updateClaudeCodeSession(sessionId, updates) {
+  if (!db) return 0;
+  try {
+    const { status, outputSummary, prUrl, durationSeconds, pid } = updates;
+    const sets = ['status = ?'];
+    const params = [status];
+
+    if (status === 'active') sets.push('started_at = CURRENT_TIMESTAMP');
+    if (status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'timeout') {
+      sets.push('completed_at = CURRENT_TIMESTAMP');
+    }
+    if (outputSummary !== undefined) { sets.push('output_summary = ?'); params.push(outputSummary); }
+    if (prUrl !== undefined) { sets.push('pr_url = ?'); params.push(prUrl); }
+    if (durationSeconds !== undefined) { sets.push('duration_seconds = ?'); params.push(durationSeconds); }
+    if (pid !== undefined) { sets.push('pid = ?'); params.push(pid); }
+
+    params.push(sessionId);
+    const stmt = db.prepare(`UPDATE claude_code_sessions SET ${sets.join(', ')} WHERE session_id = ?`);
+    return stmt.run(...params).changes;
+  } catch (err) {
+    console.error('[Database] updateClaudeCodeSession error:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Get the active Claude Code session for a chat.
+ * @param {string} chatId
+ * @returns {object|null}
+ */
+function getActiveClaudeCodeSession(chatId) {
+  if (!db) return null;
+  try {
+    return db.prepare(
+      "SELECT * FROM claude_code_sessions WHERE chat_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1"
+    ).get(String(chatId)) || null;
+  } catch (err) {
+    console.error('[Database] getActiveClaudeCodeSession error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Get recent Claude Code sessions for a chat.
+ * @param {string} chatId
+ * @param {number} [limit=5]
+ * @returns {Array}
+ */
+function getClaudeCodeSessionHistory(chatId, limit = 5) {
+  if (!db) return [];
+  try {
+    return db.prepare(
+      'SELECT * FROM claude_code_sessions WHERE chat_id = ? ORDER BY created_at DESC LIMIT ?'
+    ).all(String(chatId), limit);
+  } catch (err) {
+    console.error('[Database] getClaudeCodeSessionHistory error:', err.message);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
 
@@ -541,6 +653,12 @@ module.exports = {
   updateDeployment,
   getLastDeployment,
   getDeploymentHistory,
+
+  // Claude Code Sessions
+  saveClaudeCodeSession,
+  updateClaudeCodeSession,
+  getActiveClaudeCodeSession,
+  getClaudeCodeSessionHistory,
 
   // Utility
   getDb,

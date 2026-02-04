@@ -19,8 +19,9 @@ npm test                       # Run test suite (scripts/test-bot.js)
 curl localhost:3000/health     # Health check
 
 # Deploy to AWS EC2 (preferred — pushes SSH key automatically)
-./deploy.sh              # Quick: git pull + restart
-./deploy.sh full         # Full: git pull + npm install + rebuild better-sqlite3 + restart
+./deploy.sh                    # Quick: git pull + restart
+./deploy.sh full               # Full: git pull + npm install + rebuild better-sqlite3 + restart
+./deploy.sh full install-cc    # Full + install Claude Code CLI on EC2
 
 # Manual deploy (individual files via SCP when git is broken)
 aws ec2-instance-connect send-ssh-public-key \
@@ -237,6 +238,8 @@ module.exports = MySkill;
 | `lib/intent-classifier.js` | AI intent understanding for voice commands |
 | `lib/action-executor.js` | Auto-execution with 7 handlers (deploy, create-page, etc.) |
 | `lib/activity-log.js` | In-memory ring buffer (200 entries) for diagnostics |
+| `lib/task-queue.js` | **NEW** Async queue for long-running Claude Code sessions (max 1 concurrent) |
+| `lib/claude-code-monitor.js` | **NEW** Progress monitoring for Claude Code sessions (log polling, milestone detection) |
 
 ### Hooks
 | File | Purpose |
@@ -276,13 +279,13 @@ TWILIO_ACCOUNT_SID=AC...        # Twilio for WhatsApp + Voice
 TWILIO_AUTH_TOKEN=...
 ```
 
-## Skill Categories (37 enabled skills)
+## Skill Categories (38 enabled skills)
 
 | Category | Skills |
 |----------|--------|
 | **Control** | action-control (undo, pause, stop, explain) |
 | **Core** | help, memory, tasks, reminders |
-| **Claude Code Agent** | project-context, remote-exec (incl. Vercel deploy) |
+| **Claude Code Agent** | **claude-code-session**, project-context, remote-exec (incl. Vercel deploy) |
 | **GitHub** | github, coder, review, stats, actions, multi-repo, project-creator |
 | **Accountancy** | deadlines, companies, governance, intercompany, receipts, moltbook |
 | **Media** | image-analysis, voice, voice-call, video, files |
@@ -293,6 +296,39 @@ TWILIO_AUTH_TOKEN=...
 | **Config** | ai-settings, autonomous-config, audit |
 
 Note: `skills/alerts/` directory exists but is NOT enabled in `skills.json`.
+
+### Claude Code Session Skill
+
+**NEW in v2.5:** Run autonomous Claude Code CLI sessions for complex coding tasks via voice or text commands.
+
+**Commands:**
+- `claude code session <task>` - Start 5-30 minute autonomous coding session
+- `claude code status` - Check active session or view history
+- `cancel claude code` - Stop active session
+
+**Voice:** "Use Claude Code to fix the login bug" (auto-detects and routes)
+
+**Features:**
+- Long-running async sessions (up to 30 minutes)
+- Real-time progress updates every 30 seconds
+- Automatic PR creation on GitHub
+- Session history with PR URLs
+- Max 1 concurrent session
+- Integration with context engine and outcome tracker
+
+**Example Flow:**
+```
+User: "claude code session add rate limiting to the API"
+Bot: ⚠ Requires approval (cost: $0.50-2.00, 5-15 min)
+User: "yes"
+Bot: ✓ Session started
+Bot: 🔄 Reading project files
+Bot: 🔄 Planning changes
+Bot: 🔄 Creating files
+Bot: ✅ Complete! PR: https://github.com/user/repo/pull/42
+```
+
+See `skills/claude-code-session/README.md` for full documentation.
 
 ## Alert Escalation
 

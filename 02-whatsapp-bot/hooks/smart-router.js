@@ -83,6 +83,23 @@ class SmartRouter {
       return message;
     }
 
+    // Claude Code patterns
+    if (/claude\s+code|use\s+the\s+agent|have\s+the\s+agent/i.test(message)) {
+      // Extract task description
+      const taskMatch = message.match(/claude\s+code\s+(?:to\s+)?(.+)/i) ||
+                        message.match(/use\s+the\s+agent\s+to\s+(.+)/i) ||
+                        message.match(/have\s+the\s+agent\s+(.+)/i);
+
+      if (taskMatch) {
+        console.log(`[SmartRouter] Claude Code pattern detected: "${message}"`);
+        return `claude code session ${taskMatch[1]}`;
+      }
+
+      // Passthrough to AI if no clear task
+      console.log(`[SmartRouter] Claude Code mention without task, passing to AI`);
+      return null;
+    }
+
     // Check cache (include context in cache key for auto-context)
     const cacheKey = context.autoRepo
       ? `${message.toLowerCase()}|repo:${context.autoRepo}`

@@ -8,6 +8,7 @@
     "remote-exec",
     "project-context",
     "chat-management",
+    "claude-code-session",
     "github",
     "morning-brief",
     "research",

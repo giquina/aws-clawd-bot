@@ -85,6 +85,26 @@ const ALLOWED_COMMANDS = {
     description: 'Start application (will timeout)'
   },
 
+  // Claude Code CLI
+  'claude-code': {
+    pattern: /^claude-code\s+--task\s+".+"\s+--repo\s+\S+$/i,
+    timeout: 1800000,  // 30 minutes
+    requiresConfirmation: true,
+    description: 'Run Claude Code autonomous session'
+  },
+  'claude-code status': {
+    pattern: /^claude-code\s+--status\s+\S+$/i,
+    timeout: 5000,
+    requiresConfirmation: false,
+    description: 'Check Claude Code session status'
+  },
+  'claude-code cancel': {
+    pattern: /^claude-code\s+--cancel\s+\S+$/i,
+    timeout: 5000,
+    requiresConfirmation: false,
+    description: 'Cancel Claude Code session'
+  },
+
   // PM2 commands
   'pm2 restart': {
     pattern: /^pm2\s+restart\s+[\w-]+$/i,

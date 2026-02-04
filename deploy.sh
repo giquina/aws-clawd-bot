@@ -1,8 +1,9 @@
 #!/bin/bash
 # ClawdBot Deploy Script
-# Usage: ./deploy.sh [quick|full]
+# Usage: ./deploy.sh [quick|full] [install-cc]
 # quick = git pull + restart (default)
 # full = git pull + npm install + restart
+# install-cc = run Claude Code CLI installation after deploy
 
 set -e
 
@@ -56,6 +57,16 @@ echo ""
 echo "✅ Deploy complete!"
 pm2 status clawd-bot
 DEPLOY
+fi
+
+# Step 3: Optional Claude Code CLI installation
+if [ "$2" = "install-cc" ]; then
+    echo ""
+    echo "🔧 Installing Claude Code CLI..."
+    ssh -i "$EC2_KEY" "$EC2_HOST" << 'INSTALL_CC'
+cd /opt/clawd-bot
+bash scripts/install-claude-code.sh
+INSTALL_CC
 fi
 
 echo ""

@@ -458,6 +458,32 @@ class VoiceFlow {
             result.action = 'code-task';
             result.confidence = 0.6;
         }
+        // Claude Code pattern
+        else if (text.match(/\b(use\s+)?claude\s+code|agent|autonomous|code\s+for\s+me|have\s+the\s+agent\b/i)) {
+            result.intent = 'claude-code-session';
+            result.action = 'claude-code-session';
+            result.confidence = 0.75;
+
+            // Extract task from voice command
+            const taskPatterns = [
+                /claude\s+code\s+(?:to\s+)?(.+)$/i,
+                /agent\s+(?:to\s+)?(.+)$/i,
+                /code\s+for\s+me:?\s+(.+)$/i,
+                /have\s+the\s+agent\s+(.+)$/i
+            ];
+
+            for (const pattern of taskPatterns) {
+                const match = text.match(pattern);
+                if (match) {
+                    result.target = match[1].trim();
+                    break;
+                }
+            }
+
+            if (!result.target) {
+                result.target = text;  // Use full transcription as fallback
+            }
+        }
 
         // Try to detect project names (common ones)
         const projectPatterns = [
