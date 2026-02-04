@@ -118,6 +118,61 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_claude_sessions_chat ON claude_code_sessions(chat_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_claude_sessions_status ON claude_code_sessions(status);
+
+  -- Pomodoro Timer sessions
+  CREATE TABLE IF NOT EXISTS pomodoro_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT UNIQUE NOT NULL,
+    user_id TEXT NOT NULL,
+    duration_minutes INTEGER NOT NULL,
+    status TEXT DEFAULT 'active',
+    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+  );
+  CREATE INDEX IF NOT EXISTS idx_pomodoro_user ON pomodoro_sessions(user_id, started_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_pomodoro_status ON pomodoro_sessions(status);
+  CREATE INDEX IF NOT EXISTS idx_pomodoro_date ON pomodoro_sessions(date(started_at));
+
+  -- Database backups
+  CREATE TABLE IF NOT EXISTS backups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    size_bytes INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_backups_created ON backups(created_at DESC);
+
+  -- Secrets (encrypted)
+  CREATE TABLE IF NOT EXISTS secrets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    value_encrypted TEXT NOT NULL,
+    encryption_key_id TEXT NOT NULL,
+    last_rotated DATETIME DEFAULT CURRENT_TIMESTAMP,
+    accessed_count INTEGER DEFAULT 0,
+    created_by TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_secrets_name ON secrets(name);
+  CREATE INDEX IF NOT EXISTS idx_secrets_created_by ON secrets(created_by);
+
+  -- Secrets audit log
+  CREATE TABLE IF NOT EXISTS secrets_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    secret_id INTEGER NOT NULL,
+    secret_name TEXT NOT NULL,
+    action TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    platform TEXT DEFAULT 'telegram',
+    success BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (secret_id) REFERENCES secrets(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_secrets_audit_secret ON secrets_audit(secret_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_secrets_audit_user ON secrets_audit(user_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_secrets_audit_date ON secrets_audit(date(created_at));
 `;
 
 // ---------------------------------------------------------------------------
@@ -595,6 +650,361 @@ function getClaudeCodeSessionHistory(chatId, limit = 5) {
 }
 
 // ---------------------------------------------------------------------------
+// Pomodoro Sessions
+// ---------------------------------------------------------------------------
+
+/**
+ * Save a new Pomodoro session.
+ * @param {string} userId
+ * @param {{ sessionId: string, duration: number }} data
+ * @returns {{ id: number } | null}
+ */
+function savePomodoroSession(userId, { sessionId, duration }) {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare(
+      'INSERT INTO pomodoro_sessions (session_id, user_id, duration_minutes) VALUES (?, ?, ?)'
+    );
+    const info = stmt.run(sessionId, String(userId), duration);
+    return { id: Number(info.lastInsertRowid) };
+  } catch (err) {
+    console.error('[Database] savePomodoroSession error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Update a Pomodoro session status.
+ * @param {string} sessionId
+ * @param {string} status - 'active', 'completed', or 'stopped'
+ * @returns {number} rows changed (0 or 1)
+ */
+function updatePomodoroSessionStatus(sessionId, status) {
+  if (!db) return 0;
+  try {
+    const stmt = db.prepare(
+      'UPDATE pomodoro_sessions SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE session_id = ?'
+    );
+    return stmt.run(status, sessionId).changes;
+  } catch (err) {
+    console.error('[Database] updatePomodoroSessionStatus error:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Get daily Pomodoro session count for a user.
+ * @param {string} userId
+ * @param {string} [status='completed']
+ * @returns {number}
+ */
+function getPomodoroSessionCountToday(userId, status = 'completed') {
+  if (!db) return 0;
+  try {
+    const stmt = db.prepare(
+      `SELECT COUNT(*) as count FROM pomodoro_sessions
+       WHERE user_id = ? AND status = ? AND date(started_at) = date('now')`
+    );
+    const result = stmt.get(String(userId), status);
+    return result?.count || 0;
+  } catch (err) {
+    console.error('[Database] getPomodoroSessionCountToday error:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Get daily Pomodoro statistics for a user.
+ * @param {string} userId
+ * @returns {Object} { completed: number, stopped: number, totalMinutes: number, avgDuration: number, longestSession: number }
+ */
+function getPomodoroStatisticsToday(userId) {
+  if (!db) {
+    return { completed: 0, stopped: 0, totalMinutes: 0, avgDuration: 0, longestSession: 0 };
+  }
+  try {
+    const stmt = db.prepare(
+      `SELECT
+        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
+        COUNT(CASE WHEN status = 'stopped' THEN 1 END) as stopped,
+        SUM(CASE WHEN status IN ('completed', 'stopped') THEN duration_minutes ELSE 0 END) as total_minutes,
+        MAX(duration_minutes) as longest_session
+       FROM pomodoro_sessions
+       WHERE user_id = ? AND date(started_at) = date('now')`
+    );
+    const result = stmt.get(String(userId));
+
+    const completed = result?.completed || 0;
+    const totalMinutes = result?.total_minutes || 0;
+
+    return {
+      completed,
+      stopped: result?.stopped || 0,
+      totalMinutes,
+      avgDuration: completed > 0 ? Math.round(totalMinutes / completed) : 0,
+      longestSession: result?.longest_session || 0
+    };
+  } catch (err) {
+    console.error('[Database] getPomodoroStatisticsToday error:', err.message);
+    return { completed: 0, stopped: 0, totalMinutes: 0, avgDuration: 0, longestSession: 0 };
+  }
+}
+
+/**
+ * Get recent Pomodoro sessions for a user.
+ * @param {string} userId
+ * @param {number} [limit=10]
+ * @returns {Array}
+ */
+function getRecentPomodoroSessions(userId, limit = 10) {
+  if (!db) return [];
+  try {
+    const stmt = db.prepare(
+      'SELECT * FROM pomodoro_sessions WHERE user_id = ? ORDER BY started_at DESC LIMIT ?'
+    );
+    return stmt.all(String(userId), limit);
+  } catch (err) {
+    console.error('[Database] getRecentPomodoroSessions error:', err.message);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Database Backups
+// ---------------------------------------------------------------------------
+
+/**
+ * Save a backup record.
+ * @param {string} filename
+ * @param {string} filePath
+ * @param {number} sizeBytes
+ * @returns {{ id: number } | null}
+ */
+function saveBackup(filename, filePath, sizeBytes) {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare(
+      'INSERT INTO backups (filename, file_path, size_bytes) VALUES (?, ?, ?)'
+    );
+    const info = stmt.run(filename, filePath, sizeBytes);
+    return { id: Number(info.lastInsertRowid) };
+  } catch (err) {
+    console.error('[Database] saveBackup error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Get all backups, ordered by created_at DESC.
+ * @param {number} [limit=20]
+ * @returns {Array<{ id: number, filename: string, file_path: string, size_bytes: number, created_at: string }>}
+ */
+function listBackups(limit = 20) {
+  if (!db) return [];
+  try {
+    const stmt = db.prepare(
+      'SELECT * FROM backups ORDER BY created_at DESC LIMIT ?'
+    );
+    return stmt.all(limit);
+  } catch (err) {
+    console.error('[Database] listBackups error:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Get a backup by ID.
+ * @param {number} backupId
+ * @returns {object|null}
+ */
+function getBackup(backupId) {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare('SELECT * FROM backups WHERE id = ?');
+    return stmt.get(backupId) || null;
+  } catch (err) {
+    console.error('[Database] getBackup error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Delete old backups older than N days.
+ * @param {number} [retentionDays=7]
+ * @returns {Array<string>} file paths of deleted backups
+ */
+function deleteOldBackups(retentionDays = 7) {
+  if (!db) return [];
+  try {
+    // First get the file paths to delete
+    const selectStmt = db.prepare(
+      `SELECT file_path FROM backups WHERE created_at < datetime('now', '-' || ? || ' days')`
+    );
+    const oldBackups = selectStmt.all(retentionDays);
+
+    // Then delete from database
+    const deleteStmt = db.prepare(
+      `DELETE FROM backups WHERE created_at < datetime('now', '-' || ? || ' days')`
+    );
+    deleteStmt.run(retentionDays);
+
+    return oldBackups.map(b => b.file_path);
+  } catch (err) {
+    console.error('[Database] deleteOldBackups error:', err.message);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Secrets
+// ---------------------------------------------------------------------------
+
+/**
+ * Save an encrypted secret.
+ * @param {string} name - Secret name (unique identifier)
+ * @param {string} encryptedValue - Encrypted secret value
+ * @param {string} encryptionKeyId - Key ID used for encryption
+ * @param {string} userId - User ID who created the secret
+ * @returns {{ id: number } | null}
+ */
+function saveSecret(name, encryptedValue, encryptionKeyId, userId) {
+  if (!db) return null;
+  try {
+    // Check if secret already exists
+    const existing = db.prepare('SELECT id FROM secrets WHERE name = ?').get(name);
+
+    if (existing) {
+      // Update existing secret
+      const stmt = db.prepare(
+        'UPDATE secrets SET value_encrypted = ?, encryption_key_id = ?, last_rotated = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE name = ?'
+      );
+      stmt.run(encryptedValue, encryptionKeyId, name);
+      return { id: existing.id };
+    } else {
+      // Insert new secret
+      const stmt = db.prepare(
+        'INSERT INTO secrets (name, value_encrypted, encryption_key_id, created_by) VALUES (?, ?, ?, ?)'
+      );
+      const info = stmt.run(name, encryptedValue, encryptionKeyId, String(userId));
+      return { id: Number(info.lastInsertRowid) };
+    }
+  } catch (err) {
+    console.error('[Database] saveSecret error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Get an encrypted secret by name.
+ * @param {string} name - Secret name
+ * @returns {{ id: number, name: string, value_encrypted: string, encryption_key_id: string, last_rotated: string, accessed_count: number } | null}
+ */
+function getSecret(name) {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare('SELECT * FROM secrets WHERE name = ?');
+    return stmt.get(name) || null;
+  } catch (err) {
+    console.error('[Database] getSecret error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * List all secrets (without encrypted values).
+ * @returns {Array<{ id: number, name: string, last_rotated: string, accessed_count: number, created_by: string, created_at: string }>}
+ */
+function listSecrets() {
+  if (!db) return [];
+  try {
+    const stmt = db.prepare(
+      'SELECT id, name, last_rotated, accessed_count, created_by, created_at FROM secrets ORDER BY name ASC'
+    );
+    return stmt.all();
+  } catch (err) {
+    console.error('[Database] listSecrets error:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Delete a secret by name.
+ * @param {string} name - Secret name
+ * @returns {number} rows deleted (0 or 1)
+ */
+function deleteSecret(name) {
+  if (!db) return 0;
+  try {
+    const stmt = db.prepare('DELETE FROM secrets WHERE name = ?');
+    return stmt.run(name).changes;
+  } catch (err) {
+    console.error('[Database] deleteSecret error:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Increment the access count for a secret.
+ * @param {string} name - Secret name
+ * @returns {number} rows changed (0 or 1)
+ */
+function incrementSecretAccess(name) {
+  if (!db) return 0;
+  try {
+    const stmt = db.prepare(
+      'UPDATE secrets SET accessed_count = accessed_count + 1 WHERE name = ?'
+    );
+    return stmt.run(name).changes;
+  } catch (err) {
+    console.error('[Database] incrementSecretAccess error:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Log a secrets audit event.
+ * @param {number} secretId - Secret ID
+ * @param {string} secretName - Secret name
+ * @param {'get'|'set'|'rotate'|'delete'} action - Action performed
+ * @param {string} userId - User ID who performed the action
+ * @param {string} [platform='telegram'] - Platform used
+ * @param {boolean} [success=true] - Whether the action succeeded
+ * @returns {{ id: number } | null}
+ */
+function logSecretAudit(secretId, secretName, action, userId, platform = 'telegram', success = true) {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare(
+      'INSERT INTO secrets_audit (secret_id, secret_name, action, user_id, platform, success) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    const info = stmt.run(secretId, secretName, action, String(userId), platform, success ? 1 : 0);
+    return { id: Number(info.lastInsertRowid) };
+  } catch (err) {
+    console.error('[Database] logSecretAudit error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Get audit history for a secret.
+ * @param {string} secretName - Secret name
+ * @param {number} [limit=20] - Maximum number of entries to return
+ * @returns {Array<{ id: number, action: string, user_id: string, platform: string, success: boolean, created_at: string }>}
+ */
+function getSecretAuditHistory(secretName, limit = 20) {
+  if (!db) return [];
+  try {
+    const stmt = db.prepare(
+      'SELECT id, action, user_id, platform, success, created_at FROM secrets_audit WHERE secret_name = ? ORDER BY created_at DESC LIMIT ?'
+    );
+    return stmt.all(secretName, limit);
+  } catch (err) {
+    console.error('[Database] getSecretAuditHistory error:', err.message);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
 
@@ -659,6 +1069,28 @@ module.exports = {
   updateClaudeCodeSession,
   getActiveClaudeCodeSession,
   getClaudeCodeSessionHistory,
+
+  // Pomodoro Sessions
+  savePomodoroSession,
+  updatePomodoroSessionStatus,
+  getPomodoroSessionCountToday,
+  getPomodoroStatisticsToday,
+  getRecentPomodoroSessions,
+
+  // Backups
+  saveBackup,
+  listBackups,
+  getBackup,
+  deleteOldBackups,
+
+  // Secrets
+  saveSecret,
+  getSecret,
+  listSecrets,
+  deleteSecret,
+  incrementSecretAccess,
+  logSecretAudit,
+  getSecretAuditHistory,
 
   // Utility
   getDb,

@@ -238,6 +238,7 @@ module.exports = MySkill;
 | `lib/intent-classifier.js` | AI intent understanding for voice commands |
 | `lib/action-executor.js` | Auto-execution with 7 handlers (deploy, create-page, etc.) |
 | `lib/activity-log.js` | In-memory ring buffer (200 entries) for diagnostics |
+| `lib/encryption.js` | **NEW** AES-256-GCM encryption for secrets (requires ENCRYPTION_KEY env var) |
 | `lib/task-queue.js` | **NEW** Async queue for long-running Claude Code sessions (max 1 concurrent) |
 | `lib/claude-code-monitor.js` | **NEW** Progress monitoring for Claude Code sessions (log polling, milestone detection) |
 
@@ -277,21 +278,24 @@ CLAWDBOT_API_KEY=...            # API key for MCP/REST access
 YOUR_WHATSAPP=+44...            # WhatsApp number for backup alerts
 TWILIO_ACCOUNT_SID=AC...        # Twilio for WhatsApp + Voice
 TWILIO_AUTH_TOKEN=...
+ENCRYPTION_KEY=...              # AES-256 key for secrets (generate with: openssl rand -base64 32)
 ```
 
-## Skill Categories (38 enabled skills)
+## Skill Categories (49 enabled skills)
 
 | Category | Skills |
 |----------|--------|
 | **Control** | action-control (undo, pause, stop, explain) |
-| **Core** | help, memory, tasks, reminders |
+| **Core** | help, memory, tasks, reminders, pomodoro |
 | **Claude Code Agent** | **claude-code-session**, project-context, remote-exec (incl. Vercel deploy) |
 | **GitHub** | github, coder, review, stats, actions, multi-repo, project-creator |
+| **DevOps** | docker, monitoring, backup, **secrets** |
 | **Accountancy** | deadlines, companies, governance, intercompany, receipts, moltbook |
 | **Media** | image-analysis, voice, voice-call, video, files |
 | **Browser** | browser (browse, screenshot, search, extract) |
 | **Scheduling** | morning-brief, digest, overnight |
 | **Research** | research, vercel |
+| **Utilities** | weather, news, currency, timezone, quickmath |
 | **Chat/Platform** | chat-management, hq-commands |
 | **Config** | ai-settings, autonomous-config, audit |
 

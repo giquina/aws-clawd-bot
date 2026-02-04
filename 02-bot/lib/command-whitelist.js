@@ -229,6 +229,38 @@ const ALLOWED_COMMANDS = {
     timeout: 180000,
     requiresConfirmation: false,
     description: 'Deploy Vercel preview'
+  },
+
+  // Docker commands
+  'docker ps': {
+    pattern: /^docker\s+ps(\s+-a)?(\s+--format\s+".+")?$/i,
+    timeout: 10000,
+    requiresConfirmation: false,
+    description: 'List Docker containers'
+  },
+  'docker logs': {
+    pattern: /^docker\s+logs(\s+--tail\s+\d+)?\s+[\w-]+$/i,
+    timeout: 30000,
+    requiresConfirmation: false,
+    description: 'View container logs'
+  },
+  'docker stats': {
+    pattern: /^docker\s+stats(\s+--no-stream)?(\s+--format\s+".+")?$/i,
+    timeout: 15000,
+    requiresConfirmation: false,
+    description: 'Show container resource usage'
+  },
+  'docker restart': {
+    pattern: /^docker\s+restart\s+[\w-]+$/i,
+    timeout: 30000,
+    requiresConfirmation: true,
+    description: 'Restart a Docker container'
+  },
+  'docker inspect': {
+    pattern: /^docker\s+inspect\s+[\w-]+$/i,
+    timeout: 10000,
+    requiresConfirmation: false,
+    description: 'Inspect container details'
   }
 };
 
