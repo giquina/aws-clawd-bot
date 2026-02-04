@@ -779,8 +779,141 @@ app.post('/github-webhook', async (req, res) => {
             console.log(`[GitHub Webhook] Event ignored: ${eventType}/${req.body.action || 'no-action'}`);
         }
 
-        // Auto-deploy suggestion on PR merge
-        if (eventType === 'pull_request' && req.body.action === 'closed' && req.body.pull_request?.merged) {
+        // Auto-deploy to Vercel on push to default branch (main/master)
+        if (eventType === 'push') {
+            const pushRef = req.body.ref || '';
+            const pushRepo = req.body.repository?.name;
+            const defaultBranch = req.body.repository?.default_branch || 'main';
+            const isDefaultBranch = pushRef === `refs/heads/${defaultBranch}`;
+
+            if (isDefaultBranch && pushRepo && process.env.VERCEL_TOKEN) {
+                const targetChat = chatRegistry.getChatForRepo(pushRepo);
+                const telegram = getTelegramHandler();
+                const pusher = req.body.pusher?.name || 'unknown';
+                const commitMsg = req.body.head_commit?.message?.split('\n')[0] || 'no message';
+
+                console.log(`[AutoDeploy] Push to ${pushRepo}/${defaultBranch} by ${pusher} — triggering Vercel deploy`);
+
+                // Send "deploying..." message
+                if (targetChat && telegram?.isAvailable()) {
+                    try {
+                        await telegram.sendMessage(targetChat,
+                            `🚀 *Auto-deploying ${pushRepo}*\n\nPush to \`${defaultBranch}\` by ${pusher}:\n_"${commitMsg}"_\n\nDeploying to Vercel production...`
+                        );
+                    } catch (e) { /* ignore send error */ }
+                }
+
+                // Run deploy in background (don't block webhook response)
+                setImmediate(async () => {
+                    try {
+                        const { getProjectPath, sanitizeArgument } = require('./lib/command-whitelist');
+                        const { exec } = require('child_process');
+                        const { promisify } = require('util');
+                        const execAsync = promisify(exec);
+
+                        const projectPath = getProjectPath(sanitizeArgument(pushRepo));
+                        if (!projectPath.valid) {
+                            console.log(`[AutoDeploy] Unknown project path for ${pushRepo}, skipping`);
+                            return;
+                        }
+
+                        // Git pull first to get latest code
+                        console.log(`[AutoDeploy] Pulling latest code for ${pushRepo}...`);
+                        try {
+                            await execAsync('git pull origin ' + defaultBranch, {
+                                cwd: projectPath.path,
+                                timeout: 30000
+                            });
+                        } catch (pullErr) {
+                            console.log(`[AutoDeploy] Git pull failed (may not be a git repo): ${pullErr.message}`);
+                        }
+
+                        // Deploy to Vercel
+                        console.log(`[AutoDeploy] Running vercel --prod for ${pushRepo}...`);
+                        const startTime = Date.now();
+                        const result = await execAsync(
+                            `vercel --prod --token ${process.env.VERCEL_TOKEN} --yes`,
+                            { cwd: projectPath.path, timeout: 180000 }
+                        );
+
+                        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+                        const output = (result.stdout || '') + (result.stderr || '');
+                        const urlMatch = output.match(/(https:\/\/[^\s]+\.vercel\.app)/);
+                        const deployUrl = urlMatch ? urlMatch[1] : null;
+
+                        console.log(`[AutoDeploy] ${pushRepo} deployed in ${duration}s${deployUrl ? ` → ${deployUrl}` : ''}`);
+
+                        // Save to database
+                        try {
+                            const db = require('./lib/database');
+                            db.saveDeployment(pushRepo, {
+                                platform: 'vercel-prod',
+                                url: deployUrl,
+                                status: 'completed',
+                                triggeredBy: 'auto-deploy',
+                                chatId: targetChat
+                            });
+                        } catch (e) { /* ignore */ }
+
+                        // Track outcome
+                        try {
+                            const outcomeTracker = require('./lib/outcome-tracker');
+                            const oid = outcomeTracker.startAction({
+                                chatId: targetChat || pushRepo,
+                                userId: 'auto-deploy',
+                                actionType: 'deploy',
+                                actionDetail: `Auto-deploy ${pushRepo} on push to ${defaultBranch}`,
+                                repo: pushRepo,
+                            });
+                            outcomeTracker.completeAction(oid, {
+                                result: 'success',
+                                resultDetail: `Deployed in ${duration}s`,
+                                deployUrl,
+                                durationMs: Date.now() - startTime,
+                            });
+                        } catch (e) { /* ignore */ }
+
+                        // Send success message
+                        if (targetChat && telegram?.isAvailable()) {
+                            let msg = `✅ *${pushRepo} deployed to Vercel!*\n\n`;
+                            if (deployUrl) msg += `🔗 ${deployUrl}\n`;
+                            msg += `⏱️ ${duration}s`;
+                            await telegram.sendMessage(targetChat, msg);
+                        }
+                    } catch (deployErr) {
+                        console.error(`[AutoDeploy] Failed for ${pushRepo}:`, deployErr.message);
+
+                        // Track failure
+                        try {
+                            const outcomeTracker = require('./lib/outcome-tracker');
+                            const oid = outcomeTracker.startAction({
+                                chatId: targetChat || pushRepo,
+                                userId: 'auto-deploy',
+                                actionType: 'deploy',
+                                actionDetail: `Auto-deploy ${pushRepo} failed`,
+                                repo: pushRepo,
+                            });
+                            outcomeTracker.completeAction(oid, {
+                                result: 'failed',
+                                resultDetail: deployErr.message,
+                            });
+                        } catch (e) { /* ignore */ }
+
+                        // Send failure message
+                        if (targetChat && telegram?.isAvailable()) {
+                            try {
+                                await telegram.sendMessage(targetChat,
+                                    `❌ *Auto-deploy failed for ${pushRepo}*\n\n\`${deployErr.message.substring(0, 200)}\`\n\nYou can retry manually: \`vercel deploy ${pushRepo}\``
+                                );
+                            } catch (e) { /* ignore */ }
+                        }
+                    }
+                });
+            }
+        }
+
+        // Auto-deploy suggestion on PR merge (for repos without Vercel token)
+        if (eventType === 'pull_request' && req.body.action === 'closed' && req.body.pull_request?.merged && !process.env.VERCEL_TOKEN) {
             const mergedRepo = req.body.repository?.name;
             const targetChat = chatRegistry.getChatForRepo(mergedRepo);
 
@@ -790,9 +923,8 @@ app.post('/github-webhook', async (req, res) => {
                     const telegram = getTelegramHandler();
                     if (telegram?.isAvailable()) {
                         await telegram.sendMessage(targetChat,
-                            `✅ PR merged: *${prTitle}*\n\nWould you like me to deploy *${mergedRepo}* to Vercel? Reply "deploy to vercel" to deploy.`
+                            `✅ PR merged: *${prTitle}*\n\nWould you like me to deploy *${mergedRepo}*? Reply "deploy to vercel" to deploy.`
                         );
-                        console.log(`[GitHub Webhook] Auto-deploy suggestion sent for ${mergedRepo}`);
                     }
                 } catch (autoDeployErr) {
                     console.error('[GitHub Webhook] Auto-deploy suggestion error:', autoDeployErr.message);
@@ -1139,11 +1271,20 @@ async function processMessageForTelegram(incomingMsg, context) {
                         // User is clarifying, modifying, or asking questions
                         console.log(`[VoicePlan] User follow-up: ${userMessage}`);
 
-                        // Get conversation history for context
-                        const planClarifyHistory = memory ? memory.getConversationForClaude(chatId || userId, 8) : [];
+                        // Build rich context for project awareness
+                        let clarifyRichCtx = null;
+                        try {
+                            const ctxEngine = require('./lib/context-engine');
+                            clarifyRichCtx = await ctxEngine.build({
+                                chatId: chatId || userId, userId, platform: 'telegram',
+                                message: userMessage, autoRepo, autoCompany,
+                            });
+                        } catch (e) { /* ignore */ }
+
+                        const clarifyProjectHint = autoRepo ? `\nPROJECT: This chat is for "${autoRepo}". All work targets this project.\n` : '';
 
                         const response = await aiHandler.processQuery(
-                            `CONTEXT: You're helping the user with a plan.\n\n` +
+                            `CONTEXT: You're helping the user with a plan.${clarifyProjectHint}\n\n` +
                             `ORIGINAL VOICE INSTRUCTION: "${pending.params.transcript}"\n\n` +
                             `CURRENT PLAN:\n${pending.params.plan}\n\n` +
                             `USER SAYS: "${userMessage}"\n\n` +
@@ -1151,7 +1292,7 @@ async function processMessageForTelegram(incomingMsg, context) {
                             `If they're asking a question, answer it. If they seem ready, ask if they want to proceed. ` +
                             `Be conversational - suggest things, ask clarifying questions if needed. ` +
                             `Don't say "reply yes or no" - just have a natural conversation.`,
-                            { userId, taskType: 'planning', platform: 'telegram', conversationHistory: planClarifyHistory }
+                            { userId, taskType: 'planning', platform: 'telegram', richContext: clarifyRichCtx }
                         );
 
                         // Update plan context with the conversation
@@ -1243,22 +1384,31 @@ async function processMessageForTelegram(incomingMsg, context) {
                             // Use AI to handle the voice modification naturally
                             const userIntent = await classifyUserResponse(transcript, pending);
 
-                            // Get conversation history for voice plan context
-                            const voicePlanHistory = memory ? memory.getConversationForClaude(chatId || userId, 8) : [];
+                            // Build rich context for project awareness
+                            let voiceFollowRichCtx = null;
+                            try {
+                                const ctxEngine = require('./lib/context-engine');
+                                voiceFollowRichCtx = await ctxEngine.build({
+                                    chatId: chatId || userId, userId, platform: 'telegram',
+                                    message: transcript, autoRepo, autoCompany,
+                                });
+                            } catch (e) { /* ignore */ }
+
+                            const voiceProjectHint = autoRepo ? `\nPROJECT: "${autoRepo}"\n` : '';
 
                             if (userIntent === 'confirm') {
                                 confirmationManager.confirm(userId);
                                 const execResponse = await aiHandler.processQuery(
-                                    `CONTEXT: The user gave voice instructions:\n"${pending.params.transcript}"\n\nPLAN:\n${pending.params.plan}\n\n` +
+                                    `CONTEXT: The user gave voice instructions about project ${autoRepo || 'unknown'}:\n"${pending.params.transcript}"\n\nPLAN:\n${pending.params.plan}\n\n` +
                                     `The user just confirmed via voice: "${transcript}"\n\nExecute the plan. Be conversational.`,
-                                    { userId, taskType: 'coding', platform: 'telegram', conversationHistory: voicePlanHistory }
+                                    { userId, taskType: 'coding', platform: 'telegram', richContext: voiceFollowRichCtx }
                                 );
                                 responseText = execResponse;
                             } else {
                                 const response = await aiHandler.processQuery(
-                                    `CONTEXT: You're helping the user with a plan.\n\nORIGINAL: "${pending.params.transcript}"\n\nCURRENT PLAN:\n${pending.params.plan}\n\n` +
+                                    `CONTEXT: You're helping the user with a plan.${voiceProjectHint}\n\nORIGINAL: "${pending.params.transcript}"\n\nCURRENT PLAN:\n${pending.params.plan}\n\n` +
                                     `USER VOICE UPDATE: "${transcript}"\n\nUpdate the plan based on what they said. Be conversational.`,
-                                    { userId, taskType: 'planning', platform: 'telegram', conversationHistory: voicePlanHistory }
+                                    { userId, taskType: 'planning', platform: 'telegram', richContext: voiceFollowRichCtx }
                                 );
                                 confirmationManager.setPending(userId, 'voice_plan', {
                                     transcript: pending.params.transcript + ' ' + transcript,
@@ -1304,20 +1454,35 @@ async function processMessageForTelegram(incomingMsg, context) {
                         activityLog.log('activity', 'voice', `Voice transcribed (${wordCount} words). Creating plan with AI...`, { userId, wordCount });
 
                         try {
-                            // Get conversation history for context (persistent, per-chat)
-                            const voicePlanCreateHistory = memory ? memory.getConversationForClaude(chatId || userId, 8) : [];
+                            // Build rich context so Claude knows which project this chat is for
+                            let voicePlanRichCtx = null;
+                            try {
+                                const ctxEngine = require('./lib/context-engine');
+                                voicePlanRichCtx = await ctxEngine.build({
+                                    chatId: chatId || userId,
+                                    userId,
+                                    platform: 'telegram',
+                                    message: transcript,
+                                    autoRepo,
+                                    autoCompany,
+                                });
+                            } catch (e) { /* ignore */ }
+
+                            // Build project-aware prompt
+                            const projectHint = autoRepo
+                                ? `\n\nPROJECT CONTEXT: This chat is dedicated to the "${autoRepo}" project. The user is talking about THIS project. Use "${autoRepo}" as the target repo for all operations.\n`
+                                : '';
 
                             const planResponse = await aiHandler.processQuery(
-                                `You're a helpful assistant. The user sent a voice note with instructions.\n\n` +
+                                `You're a helpful assistant. The user sent a voice note with instructions.${projectHint}\n\n` +
                                 `VOICE INSTRUCTION: "${transcript}"\n\n` +
                                 `Respond naturally:\n` +
                                 `1. Briefly confirm what you understood\n` +
-                                `2. List the specific tasks you'll do\n` +
-                                `3. Mention which project(s) this affects\n` +
-                                `4. If anything is unclear, ask a question\n` +
-                                `5. If everything is clear, ask if they'd like you to proceed\n\n` +
+                                `2. List the specific tasks you'll do (mention the project name: ${autoRepo || 'unknown'})\n` +
+                                `3. If anything is unclear, ask a question\n` +
+                                `4. If everything is clear, ask if they'd like you to proceed\n\n` +
                                 `Be conversational and friendly. Don't use rigid formatting. Talk like a helpful colleague.`,
-                                { userId, taskType: 'planning', conversationHistory: voicePlanCreateHistory }
+                                { userId, taskType: 'planning', richContext: voicePlanRichCtx }
                             );
 
                             if (confirmationManager) {
