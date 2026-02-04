@@ -254,6 +254,23 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_document_analyses_user ON document_analyses(user_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_document_analyses_chat ON document_analyses(chat_id, created_at DESC);
+
+  -- Goals
+  CREATE TABLE IF NOT EXISTS goals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    description TEXT NOT NULL,
+    target_value REAL,
+    current_value REAL DEFAULT 0,
+    unit TEXT,
+    deadline DATE,
+    status TEXT DEFAULT 'active',
+    user_id TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+  );
+  CREATE INDEX IF NOT EXISTS idx_goals_user ON goals(user_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);
+  CREATE INDEX IF NOT EXISTS idx_goals_deadline ON goals(deadline);
 `;
 
 // ---------------------------------------------------------------------------
@@ -1665,6 +1682,143 @@ function getDocumentAnalysesByChat(chatId, limit = 10) {
 }
 
 // ---------------------------------------------------------------------------
+// Goals
+// ---------------------------------------------------------------------------
+
+/**
+ * Save a new goal.
+ * @param {string} userId
+ * @param {{ description: string, targetValue?: number, unit?: string, deadline?: string }} data
+ * @returns {{ id: number } | null}
+ */
+function saveGoal(userId, { description, targetValue = null, unit = null, deadline = null }) {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare(
+      'INSERT INTO goals (user_id, description, target_value, unit, deadline) VALUES (?, ?, ?, ?, ?)'
+    );
+    const info = stmt.run(String(userId), description, targetValue, unit, deadline);
+    return { id: Number(info.lastInsertRowid) };
+  } catch (err) {
+    console.error('[Database] saveGoal error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Get a goal by ID.
+ * @param {number} goalId
+ * @returns {object|null}
+ */
+function getGoal(goalId) {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare('SELECT * FROM goals WHERE id = ?');
+    return stmt.get(goalId) || null;
+  } catch (err) {
+    console.error('[Database] getGoal error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * List goals for a user, optionally filtered by status.
+ * @param {string} userId
+ * @param {string|null} [status=null] - Filter by status ('active', 'completed', 'cancelled')
+ * @param {number} [limit=50]
+ * @returns {Array}
+ */
+function listGoals(userId, status = null, limit = 50) {
+  if (!db) return [];
+  try {
+    if (status) {
+      return db.prepare(
+        'SELECT * FROM goals WHERE user_id = ? AND status = ? ORDER BY created_at DESC LIMIT ?'
+      ).all(String(userId), status, limit);
+    }
+    return db.prepare(
+      'SELECT * FROM goals WHERE user_id = ? ORDER BY created_at DESC LIMIT ?'
+    ).all(String(userId), limit);
+  } catch (err) {
+    console.error('[Database] listGoals error:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Update goal progress.
+ * @param {number} goalId
+ * @param {number} currentValue
+ * @returns {number} rows changed (0 or 1)
+ */
+function updateGoalProgress(goalId, currentValue) {
+  if (!db) return 0;
+  try {
+    return db.prepare(
+      'UPDATE goals SET current_value = ? WHERE id = ?'
+    ).run(currentValue, goalId).changes;
+  } catch (err) {
+    console.error('[Database] updateGoalProgress error:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Mark a goal as completed.
+ * @param {number} goalId
+ * @returns {number} rows changed (0 or 1)
+ */
+function completeGoal(goalId) {
+  if (!db) return 0;
+  try {
+    return db.prepare(
+      'UPDATE goals SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?'
+    ).run('completed', goalId).changes;
+  } catch (err) {
+    console.error('[Database] completeGoal error:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Delete a goal.
+ * @param {number} goalId
+ * @returns {number} rows deleted (0 or 1)
+ */
+function deleteGoal(goalId) {
+  if (!db) return 0;
+  try {
+    return db.prepare('DELETE FROM goals WHERE id = ?').run(goalId).changes;
+  } catch (err) {
+    console.error('[Database] deleteGoal error:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Get active goals approaching their deadline.
+ * @param {string} userId
+ * @param {number} [daysAhead=7] - Number of days to look ahead
+ * @returns {Array}
+ */
+function getGoalsApproachingDeadline(userId, daysAhead = 7) {
+  if (!db) return [];
+  try {
+    return db.prepare(
+      `SELECT * FROM goals
+       WHERE user_id = ?
+       AND status = 'active'
+       AND deadline IS NOT NULL
+       AND deadline <= date('now', '+' || ? || ' days')
+       ORDER BY deadline ASC`
+    ).all(String(userId), daysAhead);
+  } catch (err) {
+    console.error('[Database] getGoalsApproachingDeadline error:', err.message);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
 
@@ -1787,6 +1941,15 @@ module.exports = {
   getDocumentAnalysis,
   getDocumentAnalyses,
   getDocumentAnalysesByChat,
+
+  // Goals
+  saveGoal,
+  getGoal,
+  listGoals,
+  updateGoalProgress,
+  completeGoal,
+  deleteGoal,
+  getGoalsApproachingDeadline,
 
   // Utility
   getDb,
