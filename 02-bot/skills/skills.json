@@ -27,6 +27,7 @@
     "receipts",
     "invoices",
     "image-analysis",
+    "document-analyzer",
     "coder",
     "review",
     "stats",
@@ -48,7 +49,9 @@
     "autonomous-config",
     "audit",
     "backup",
-    "analytics"
+    "analytics",
+    "image-gen",
+    "meeting"
   ],
   "disabled": [],
   "config": {
@@ -96,6 +99,10 @@
       "pdfFormat": "text"
     },
     "image-analysis": {},
+    "document-analyzer": {
+      "maxFileSizeMB": 50,
+      "analysisModel": "opus"
+    },
     "coder": {},
     "review": {},
     "stats": {},
@@ -181,6 +188,22 @@
       "cacheTTLMinutes": 5,
       "defaultPeriod": "week",
       "maxCacheEntries": 20
+    },
+    "image-gen": {
+      "model": "stability-ai/sdxl",
+      "costPerGeneration": 0.02,
+      "maxWidth": 1024,
+      "maxHeight": 1024,
+      "defaultSteps": 25,
+      "guidanceScale": 7.5,
+      "requiresConfirmation": true
+    },
+    "meeting": {
+      "maxActiveSessions": 1,
+      "maxAudioChunks": 50,
+      "transcriptionModel": "whisper-large-v3",
+      "analysisModel": "opus",
+      "storageDir": "meetings"
     }
   }
 }

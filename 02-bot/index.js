@@ -101,7 +101,9 @@ try {
     loadSkills(path.join(__dirname, 'skills'), {
         memory: memory,
         ai: aiHandler,
-        config: {}
+        config: {
+            telegramHandler: telegramHandler
+        }
     }).then(() => {
         console.log('✅ Skills framework loaded');
         console.log(`   Registered skills: ${skillRegistry.listSkills().map(s => s.name).join(', ')}`);
@@ -1686,6 +1688,36 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
                     }
                 }
 
+                // Handle image generation confirmations
+                if (pending && pending.action === 'generate-image' && registry) {
+                    console.log('[ImageGen] Executing confirmed image generation');
+                    const imageGenSkill = registry.getSkill('image-gen');
+
+                    if (imageGenSkill && imageGenSkill.executeConfirmed) {
+                        try {
+                            const genResult = await imageGenSkill.executeConfirmed(pending.params, {
+                                userId,
+                                chatId,
+                                fromNumber,
+                                platform,
+                                messageId,
+                                timestamp: new Date()
+                            });
+
+                            const responseText = genResult.success
+                                ? genResult.message
+                                : `❌ ${genResult.message}`;
+
+                            await MessagingPlatform.sendToRecipient(responseText, platform, fromNumber);
+                            return;
+                        } catch (err) {
+                            console.error('[ImageGen] Confirmation execution failed:', err.message);
+                            await MessagingPlatform.sendToRecipient(`*Error:* ${err.message}`, platform, fromNumber);
+                            return;
+                        }
+                    }
+                }
+
                 // Handle regular action executor confirmations
                 if (pending && actionExecutor) {
                     console.log(`[AutoExec] Executing confirmed action: ${pending.action}`);
@@ -1872,6 +1904,23 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
                 if (result && result.handled) {
                     responseText = result.message;
                     handled = true;
+
+                    // APPROVAL FLOW: Check if skill needs approval
+                    if (result.needsApproval && result.approvalData && confirmationManager) {
+                        const { action, ...params } = result.approvalData;
+                        const actionType = action || 'generate-image'; // Default action type
+
+                        confirmationManager.setPending(userId, actionType, params, {
+                            userId,
+                            chatId,
+                            fromNumber,
+                            platform,
+                            messageId,
+                            timestamp: new Date()
+                        });
+
+                        console.log(`[Approval] Pending confirmation set for ${userId}: ${actionType}`);
+                    }
 
                     // AUTO-EXECUTION: Check if skill returned an action to execute
                     if (result.data?.intelligence && actionExecutor) {

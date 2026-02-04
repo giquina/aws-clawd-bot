@@ -494,8 +494,9 @@ Try "help" to see what I can do! 💬`;
             let aiResponse;
             let providerUsed = 'claude';
 
-            // Build system prompt with context engine awareness + project context
-            const systemPrompt = this.getSystemPrompt(projectContext, richCtx);
+            // Build system prompt with context engine awareness + project context + language
+            const detectedLanguage = context.detectedLanguage || null;
+            const systemPrompt = this.getSystemPrompt(projectContext, richCtx, detectedLanguage);
 
             // Try multi-AI routing first
             if (providerRegistry && this.providersInitialized) {
@@ -574,7 +575,7 @@ Try "help" to see what I can do! 💬`;
         const response = await client.messages.create({
             model: 'claude-sonnet-4-20250514',
             max_tokens: 1024,
-            system: systemPrompt || this.getSystemPrompt(),
+            system: systemPrompt || this.getSystemPrompt(null, null, context.detectedLanguage),
             messages: this.conversationHistory
         });
 
@@ -585,8 +586,9 @@ Try "help" to see what I can do! 💬`;
      * Get system prompt that defines bot behavior
      * @param {Object|null} projectContext - Optional project context to include
      * @param {Object|null} richContext - Optional rich context from context-engine
+     * @param {string|null} detectedLanguage - Optional detected language for voice notes
      */
-    getSystemPrompt(projectContext = null, richContext = null) {
+    getSystemPrompt(projectContext = null, richContext = null, detectedLanguage = null) {
         const repos = (process.env.REPOS_TO_MONITOR || '').split(',').filter(Boolean);
         const githubUser = process.env.GITHUB_USERNAME || 'unknown';
 
@@ -607,8 +609,23 @@ Try "help" to see what I can do! 💬`;
             }
         }
 
+        // Language instruction for non-English voice notes
+        let languageInstruction = '';
+        if (detectedLanguage && detectedLanguage !== 'en' && detectedLanguage !== 'english') {
+            const languageMap = {
+                'pt': 'Portuguese',
+                'es': 'Spanish',
+                'fr': 'French',
+                'de': 'German',
+                'it': 'Italian',
+                'nl': 'Dutch'
+            };
+            const languageName = languageMap[detectedLanguage.toLowerCase()] || detectedLanguage;
+            languageInstruction = `\n\n🌍 LANGUAGE: User spoke in ${languageName}. RESPOND IN ${languageName.toUpperCase()}. Keep your response natural and conversational in that language.\n`;
+        }
+
         return `You are ClawdBot, a powerful AI coding assistant running on Telegram and WhatsApp. You have REAL integrations and capabilities - you're not just a chatbot.
-${contextSection}${projectSection}
+${contextSection}${projectSection}${languageInstruction}
 
 YOUR ACTUAL CAPABILITIES:
 You are connected to GitHub (user: ${githubUser}) and can:

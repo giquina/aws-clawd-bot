@@ -116,15 +116,18 @@ class VoiceFlow {
         const startTime = Date.now();
 
         try {
-            // Step 1: Transcribe
-            const transcription = await this.transcribe(audioUrl);
+            // Step 1: Transcribe (with language detection)
+            const transcriptionResult = await this.transcribe(audioUrl);
+            const transcription = transcriptionResult.text;
+            const detectedLanguage = transcriptionResult.language;
 
             this.log({
                 type: 'voice_transcription',
                 userId,
                 duration: Date.now() - startTime,
                 textLength: transcription.length,
-                preview: transcription.substring(0, 50)
+                preview: transcription.substring(0, 50),
+                language: detectedLanguage
             });
 
             // Empty transcription check
@@ -135,16 +138,22 @@ class VoiceFlow {
                 };
             }
 
+            // Save language preference if detected (for non-English languages)
+            if (detectedLanguage && detectedLanguage !== 'en' && this.isLanguageSupported(detectedLanguage)) {
+                this.saveLanguagePreference(userId, detectedLanguage);
+            }
+
             // Step 2: Show transcription to user (for verification)
             const transcriptMessage = `I heard: "${transcription}"\n\nProcessing...`;
 
-            // Step 3: Classify intent
+            // Step 3: Classify intent (include language in context)
             let intent = null;
             if (this.intentClassifier) {
                 intent = await this.intentClassifier.classify(transcription, {
                     ...context,
                     source: 'voice',
-                    hasMedia: false // Audio already processed
+                    hasMedia: false, // Audio already processed
+                    detectedLanguage
                 });
 
                 this.log({
@@ -152,7 +161,8 @@ class VoiceFlow {
                     userId,
                     intent: intent.intent,
                     project: intent.project,
-                    confidence: intent.confidence
+                    confidence: intent.confidence,
+                    language: detectedLanguage
                 });
             }
 
@@ -177,7 +187,8 @@ class VoiceFlow {
                 const proposal = await this.actionController.proposeAction(intent, {
                     ...context,
                     userId,
-                    source: 'voice'
+                    source: 'voice',
+                    detectedLanguage
                 });
 
                 this.log({
@@ -187,12 +198,16 @@ class VoiceFlow {
                     actionId: proposal.action?.id
                 });
 
-                // Step 6: Return appropriate response based on flow
-                return this.buildResponse(proposal, transcription, intent);
+                // Step 6: Return appropriate response based on flow (include language)
+                const response = this.buildResponse(proposal, transcription, intent);
+                response.detectedLanguage = detectedLanguage;
+                return response;
             }
 
             // No action needed - just return the transcription with context
-            return this.buildSimpleResponse(transcription, intent);
+            const response = this.buildSimpleResponse(transcription, intent);
+            response.detectedLanguage = detectedLanguage;
+            return response;
 
         } catch (error) {
             this.logError(error, { userId, stage: 'voice_flow' });
@@ -283,7 +298,7 @@ class VoiceFlow {
     /**
      * Transcribe audio using Groq Whisper (FREE)
      * @param {string} audioUrl - URL to download audio from
-     * @returns {Promise<string>} Transcribed text
+     * @returns {Promise<Object>} { text: string, language: string }
      */
     async transcribe(audioUrl) {
         // Check for Groq API key
@@ -300,7 +315,7 @@ class VoiceFlow {
 
         console.log(`[VoiceFlow] Downloaded audio: ${audioBuffer.length} bytes`);
 
-        // Transcribe with Groq Whisper
+        // Transcribe with Groq Whisper (with language detection)
         return await this.transcribeWithGroq(audioBuffer);
     }
 
@@ -358,6 +373,8 @@ class VoiceFlow {
 
     /**
      * Transcribe audio buffer using Groq Whisper API
+     * Supports auto-detection for: English, Portuguese, Spanish, French, and many others
+     * @returns {Promise<Object>} { text: string, language: string }
      */
     async transcribeWithGroq(audioBuffer) {
         return new Promise((resolve, reject) => {
@@ -374,21 +391,19 @@ class VoiceFlow {
                 `Content-Disposition: form-data; name="model"\r\n\r\n` +
                 `whisper-large-v3`;
 
-            // Response format part
+            // Response format part - use verbose_json to get language detection
             const formatPart = `\r\n--${boundary}\r\n` +
                 `Content-Disposition: form-data; name="response_format"\r\n\r\n` +
-                `text`;
+                `verbose_json`;
 
-            // Language hint (optional but helps accuracy)
-            const langPart = `\r\n--${boundary}\r\n` +
-                `Content-Disposition: form-data; name="language"\r\n\r\n` +
-                `en`;
+            // NO language parameter - let Whisper auto-detect
+            // Supports: English, Portuguese, Spanish, French, and 95+ other languages
 
             const endBoundary = `\r\n--${boundary}--\r\n`;
 
             // Combine all parts
             const preFile = Buffer.from(filePart, 'utf8');
-            const postFile = Buffer.from(modelPart + formatPart + langPart + endBoundary, 'utf8');
+            const postFile = Buffer.from(modelPart + formatPart + endBoundary, 'utf8');
             const fullBody = Buffer.concat([preFile, audioBuffer, postFile]);
 
             const options = {
@@ -407,7 +422,26 @@ class VoiceFlow {
                 res.on('data', chunk => data += chunk);
                 res.on('end', () => {
                     if (res.statusCode === 200) {
-                        resolve(data.trim());
+                        try {
+                            // Parse verbose_json response
+                            const result = JSON.parse(data);
+                            const text = result.text?.trim() || '';
+                            const language = result.language || 'unknown';
+
+                            console.log(`[VoiceFlow] Detected language: ${language}`);
+
+                            resolve({
+                                text,
+                                language
+                            });
+                        } catch (parseError) {
+                            // Fallback if JSON parsing fails
+                            console.error('[VoiceFlow] Failed to parse Groq response:', parseError);
+                            resolve({
+                                text: data.trim(),
+                                language: 'unknown'
+                            });
+                        }
                     } else {
                         console.error('[VoiceFlow] Groq API error:', res.statusCode, data);
                         reject(new Error(`Groq transcription failed: ${res.statusCode}`));
@@ -683,11 +717,96 @@ class VoiceFlow {
     }
 
     /**
+     * Get language name from ISO code
+     * @param {string} languageCode - ISO 639-1 code (e.g., 'en', 'pt', 'es', 'fr')
+     * @returns {string} Full language name
+     */
+    getLanguageName(languageCode) {
+        const languageMap = {
+            'en': 'English',
+            'pt': 'Portuguese',
+            'es': 'Spanish',
+            'fr': 'French',
+            'de': 'German',
+            'it': 'Italian',
+            'nl': 'Dutch',
+            'pl': 'Polish',
+            'ru': 'Russian',
+            'zh': 'Chinese',
+            'ja': 'Japanese',
+            'ko': 'Korean',
+            'ar': 'Arabic',
+            'hi': 'Hindi'
+        };
+        return languageMap[languageCode?.toLowerCase()] || languageCode || 'Unknown';
+    }
+
+    /**
+     * Check if language is supported for responses
+     * @param {string} languageCode - ISO 639-1 code
+     * @returns {boolean} True if language is supported
+     */
+    isLanguageSupported(languageCode) {
+        const supportedLanguages = ['en', 'pt', 'es', 'fr'];
+        return supportedLanguages.includes(languageCode?.toLowerCase());
+    }
+
+    /**
      * Truncate text with ellipsis
      */
     truncate(text, maxLength) {
         if (text.length <= maxLength) return text;
         return text.substring(0, maxLength - 3) + '...';
+    }
+
+    /**
+     * Save user's detected language preference
+     * @param {string} userId - User identifier
+     * @param {string} language - ISO language code
+     */
+    saveLanguagePreference(userId, language) {
+        try {
+            const db = require('./database');
+
+            // Check if language preference already exists
+            const existingFacts = db.getFacts(userId, 'language');
+            if (existingFacts && existingFacts.length > 0) {
+                // Delete old language preference
+                for (const fact of existingFacts) {
+                    db.deleteFact(fact.id);
+                }
+            }
+
+            // Save new language preference
+            const languageName = this.getLanguageName(language);
+            db.saveFact(userId, `Preferred language: ${languageName} (${language})`, 'language');
+            console.log(`[VoiceFlow] Saved language preference for ${userId}: ${language}`);
+        } catch (e) {
+            console.error('[VoiceFlow] Failed to save language preference:', e.message);
+        }
+    }
+
+    /**
+     * Get user's language preference
+     * @param {string} userId - User identifier
+     * @returns {string|null} ISO language code or null if not set
+     */
+    getLanguagePreference(userId) {
+        try {
+            const db = require('./database');
+
+            const facts = db.getFacts(userId, 'language');
+            if (facts && facts.length > 0) {
+                // Extract language code from fact (format: "Preferred language: English (en)")
+                const match = facts[0].fact.match(/\(([a-z]{2})\)$/i);
+                if (match) {
+                    return match[1].toLowerCase();
+                }
+            }
+        } catch (e) {
+            console.error('[VoiceFlow] Failed to get language preference:', e.message);
+        }
+        return null;
     }
 
     /**

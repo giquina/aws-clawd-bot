@@ -222,6 +222,38 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_recurring_user ON recurring_expenses(user_id, active);
   CREATE INDEX IF NOT EXISTS idx_recurring_next_date ON recurring_expenses(next_date);
+
+  -- Meetings
+  CREATE TABLE IF NOT EXISTS meetings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT,
+    transcript TEXT,
+    summary TEXT,
+    action_items TEXT,
+    participants TEXT,
+    duration_minutes INTEGER,
+    audio_file_path TEXT,
+    status TEXT DEFAULT 'active',
+    user_id TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+  );
+  CREATE INDEX IF NOT EXISTS idx_meetings_user ON meetings(user_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_meetings_status ON meetings(status);
+
+  -- Document Analyses
+  CREATE TABLE IF NOT EXISTS document_analyses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT NOT NULL,
+    file_path TEXT,
+    summary TEXT,
+    extracted_data TEXT,
+    user_id TEXT NOT NULL,
+    chat_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_document_analyses_user ON document_analyses(user_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_document_analyses_chat ON document_analyses(chat_id, created_at DESC);
 `;
 
 // ---------------------------------------------------------------------------
@@ -1426,6 +1458,213 @@ function deleteRecurringExpense(expenseId) {
 }
 
 // ---------------------------------------------------------------------------
+// Meetings
+// ---------------------------------------------------------------------------
+
+/**
+ * Save a new meeting record.
+ * @param {string} userId
+ * @param {{ title?: string, audioFilePath?: string }} data
+ * @returns {{ id: number } | null}
+ */
+function saveMeeting(userId, { title = null, audioFilePath = null } = {}) {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare(
+      'INSERT INTO meetings (user_id, title, audio_file_path) VALUES (?, ?, ?)'
+    );
+    const info = stmt.run(String(userId), title, audioFilePath);
+    return { id: Number(info.lastInsertRowid) };
+  } catch (err) {
+    console.error('[Database] saveMeeting error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Get a meeting by ID.
+ * @param {number} meetingId
+ * @returns {object|null}
+ */
+function getMeeting(meetingId) {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare('SELECT * FROM meetings WHERE id = ?');
+    return stmt.get(meetingId) || null;
+  } catch (err) {
+    console.error('[Database] getMeeting error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * List meetings for a user.
+ * @param {string} userId
+ * @param {number} [limit=20]
+ * @returns {Array<{ id: number, title: string, summary: string, duration_minutes: number, created_at: string }>}
+ */
+function listMeetings(userId, limit = 20) {
+  if (!db) return [];
+  try {
+    const stmt = db.prepare(
+      'SELECT * FROM meetings WHERE user_id = ? ORDER BY created_at DESC LIMIT ?'
+    );
+    return stmt.all(String(userId), limit);
+  } catch (err) {
+    console.error('[Database] listMeetings error:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Update a meeting with transcript, summary, and action items.
+ * @param {number} meetingId
+ * @param {{ transcript?: string, summary?: string, actionItems?: string, participants?: string, durationMinutes?: number, status?: string }} updates
+ * @returns {number} rows changed (0 or 1)
+ */
+function updateMeeting(meetingId, updates) {
+  if (!db) return 0;
+  try {
+    const { transcript, summary, actionItems, participants, durationMinutes, status } = updates;
+    const sets = [];
+    const params = [];
+
+    if (transcript !== undefined) { sets.push('transcript = ?'); params.push(transcript); }
+    if (summary !== undefined) { sets.push('summary = ?'); params.push(summary); }
+    if (actionItems !== undefined) { sets.push('action_items = ?'); params.push(actionItems); }
+    if (participants !== undefined) { sets.push('participants = ?'); params.push(participants); }
+    if (durationMinutes !== undefined) { sets.push('duration_minutes = ?'); params.push(durationMinutes); }
+    if (status !== undefined) {
+      sets.push('status = ?');
+      params.push(status);
+      if (status === 'completed') {
+        sets.push('completed_at = CURRENT_TIMESTAMP');
+      }
+    }
+
+    if (sets.length === 0) return 0;
+
+    params.push(meetingId);
+    const stmt = db.prepare(`UPDATE meetings SET ${sets.join(', ')} WHERE id = ?`);
+    return stmt.run(...params).changes;
+  } catch (err) {
+    console.error('[Database] updateMeeting error:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Delete a meeting.
+ * @param {number} meetingId
+ * @returns {number} rows deleted (0 or 1)
+ */
+function deleteMeeting(meetingId) {
+  if (!db) return 0;
+  try {
+    return db.prepare('DELETE FROM meetings WHERE id = ?').run(meetingId).changes;
+  } catch (err) {
+    console.error('[Database] deleteMeeting error:', err.message);
+    return 0;
+  }
+}
+
+/**
+ * Get the most recent active meeting for a user.
+ * @param {string} userId
+ * @returns {object|null}
+ */
+function getActiveMeeting(userId) {
+  if (!db) return null;
+  try {
+    return db.prepare(
+      "SELECT * FROM meetings WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1"
+    ).get(String(userId)) || null;
+  } catch (err) {
+    console.error('[Database] getActiveMeeting error:', err.message);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Document Analyses
+// ---------------------------------------------------------------------------
+
+/**
+ * Save a document analysis result.
+ * @param {string} userId
+ * @param {string} chatId
+ * @param {{ filename: string, filePath?: string, summary?: string, extractedData?: string }} data
+ * @returns {{ id: number } | null}
+ */
+function saveDocumentAnalysis(userId, chatId, { filename, filePath = null, summary = null, extractedData = null }) {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare(
+      'INSERT INTO document_analyses (user_id, chat_id, filename, file_path, summary, extracted_data) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    const info = stmt.run(String(userId), String(chatId), filename, filePath, summary, extractedData);
+    return { id: Number(info.lastInsertRowid) };
+  } catch (err) {
+    console.error('[Database] saveDocumentAnalysis error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Get a document analysis by ID.
+ * @param {number} analysisId
+ * @returns {object|null}
+ */
+function getDocumentAnalysis(analysisId) {
+  if (!db) return null;
+  try {
+    const stmt = db.prepare('SELECT * FROM document_analyses WHERE id = ?');
+    return stmt.get(analysisId) || null;
+  } catch (err) {
+    console.error('[Database] getDocumentAnalysis error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Get all document analyses for a user.
+ * @param {string} userId
+ * @param {number} [limit=20]
+ * @returns {Array<{ id: number, filename: string, summary: string, created_at: string }>}
+ */
+function getDocumentAnalyses(userId, limit = 20) {
+  if (!db) return [];
+  try {
+    const stmt = db.prepare(
+      'SELECT id, filename, summary, created_at FROM document_analyses WHERE user_id = ? ORDER BY created_at DESC LIMIT ?'
+    );
+    return stmt.all(String(userId), limit);
+  } catch (err) {
+    console.error('[Database] getDocumentAnalyses error:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Get recent document analyses for a chat.
+ * @param {string} chatId
+ * @param {number} [limit=10]
+ * @returns {Array<{ id: number, filename: string, summary: string, created_at: string }>}
+ */
+function getDocumentAnalysesByChat(chatId, limit = 10) {
+  if (!db) return [];
+  try {
+    const stmt = db.prepare(
+      'SELECT id, filename, summary, created_at FROM document_analyses WHERE chat_id = ? ORDER BY created_at DESC LIMIT ?'
+    );
+    return stmt.all(String(chatId), limit);
+  } catch (err) {
+    console.error('[Database] getDocumentAnalysesByChat error:', err.message);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
 
@@ -1534,6 +1773,20 @@ module.exports = {
   updateRecurringExpenseNextDate,
   deactivateRecurringExpense,
   deleteRecurringExpense,
+
+  // Meetings
+  saveMeeting,
+  getMeeting,
+  listMeetings,
+  updateMeeting,
+  deleteMeeting,
+  getActiveMeeting,
+
+  // Document Analyses
+  saveDocumentAnalysis,
+  getDocumentAnalysis,
+  getDocumentAnalyses,
+  getDocumentAnalysesByChat,
 
   // Utility
   getDb,

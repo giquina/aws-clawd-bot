@@ -69,7 +69,11 @@ const ACTIONS_REQUIRING_CONFIRMATION = new Set([
 
   // Config changes
   'change-settings',
-  'update-config'
+  'update-config',
+
+  // AI Generation actions (cost money)
+  'generate-image',
+  'generate-logo'
 ]);
 
 /**

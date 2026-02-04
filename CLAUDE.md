@@ -279,6 +279,7 @@ YOUR_WHATSAPP=+44...            # WhatsApp number for backup alerts
 TWILIO_ACCOUNT_SID=AC...        # Twilio for WhatsApp + Voice
 TWILIO_AUTH_TOKEN=...
 ENCRYPTION_KEY=...              # AES-256 key for secrets (generate with: openssl rand -base64 32)
+REPLICATE_API_TOKEN=...         # Replicate API for image generation (~$0.02 per image)
 ```
 
 ## Skill Categories (49 enabled skills)
@@ -291,7 +292,7 @@ ENCRYPTION_KEY=...              # AES-256 key for secrets (generate with: openss
 | **GitHub** | github, coder, review, stats, actions, multi-repo, project-creator |
 | **DevOps** | docker, monitoring, backup, **secrets** |
 | **Accountancy** | deadlines, companies, governance, intercompany, receipts, moltbook |
-| **Media** | image-analysis, voice, voice-call, video, files |
+| **Media** | **image-gen**, image-analysis, voice, voice-call, video, files |
 | **Browser** | browser (browse, screenshot, search, extract) |
 | **Scheduling** | morning-brief, digest, overnight |
 | **Research** | research, vercel |
@@ -333,6 +334,45 @@ Bot: ✅ Complete! PR: https://github.com/user/repo/pull/42
 ```
 
 See `skills/claude-code-session/README.md` for full documentation.
+
+### Image Generation Skill
+
+**NEW in v2.6:** Generate AI images from text prompts using Replicate's Stable Diffusion XL.
+
+**Commands:**
+- `generate image <prompt>` - Generate image from text description
+- `generate logo <description>` - Generate logo with optimized prompt
+- `create image <prompt>` - Alias for generate image
+- `make image <prompt>` - Alias for generate image
+
+**Voice:** "generate a hero image for JUDO project", "create a logo for my startup"
+
+**Features:**
+- Uses Replicate Stable Diffusion XL (cost-effective: ~$0.02 per image)
+- Sends image directly to Telegram
+- Saves images locally with metadata at `/opt/clawd-bot/data/images/`
+- Automatic logo prompt optimization
+- Requires confirmation before generation (cost control)
+- Integration with outcome tracker
+
+**Configuration:**
+- Requires `REPLICATE_API_TOKEN` environment variable
+- Images stored at `/opt/clawd-bot/data/images/` on EC2
+- Default size: 1024x1024
+- Inference steps: 25 (balance of quality and speed)
+- Guidance scale: 7.5 (prompt adherence)
+
+**Example Flow:**
+```
+User: "generate image a futuristic city at night with neon lights"
+Bot: ⚠ Generate image requires approval
+     Prompt: "a futuristic city at night with neon lights"
+     Estimated cost: $0.02
+     Reply 'yes' to proceed
+User: "yes"
+Bot: ✓ Image generated [sends photo via Telegram]
+     Files: 1 | Cost: ~$0.02
+```
 
 ## Alert Escalation
 
