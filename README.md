@@ -1,4 +1,4 @@
-# ClawdBot v2.3 - AI Coding Agent for Telegram/WhatsApp/Voice
+# ClawdBot v2.5 - AI Coding Agent for Telegram/WhatsApp/Voice
 
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -9,7 +9,7 @@
 
 **Your personal AI coding agent running 24/7, controllable via Telegram (primary), WhatsApp (backup), or Voice calls (critical).**
 
-ClawdBot v2.3 is a full Claude Code Agent - read any repo, parse TODOs, deploy code, run tests, and get proactive morning reports. Includes multi-AI routing (Groq FREE, Claude Opus/Sonnet, Grok, Perplexity), an autonomous agent system for nightly task execution, smart alert escalation with voice calling for emergencies, and 37+ modular skills.
+ClawdBot v2.5 is a full Claude Code Agent - read any repo, parse TODOs, deploy code, run tests, and get proactive morning reports. Includes multi-AI routing (Groq FREE, Claude Opus/Sonnet, Grok, Perplexity), context-aware intelligence (context engine + outcome tracking), an autonomous agent system for nightly task execution, smart alert escalation with voice calling for emergencies, auto-deploy on GitHub push, and 37 modular skills.
 
 > 🚀 **Running 24/7 on AWS EC2** - Send a message via Telegram or WhatsApp anytime, or receive voice calls for critical alerts!
 

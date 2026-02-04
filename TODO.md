@@ -1,4 +1,4 @@
-# TODO.md - ClawdBot v2.3 Task Tracker
+# TODO.md - ClawdBot v2.5 Task Tracker
 
 ## Quick Links
 - [CLAUDE.md](./CLAUDE.md) - Project documentation
@@ -137,30 +137,31 @@
 
 | Metric | Value |
 |--------|-------|
-| Skills | 30 |
-| AI Providers | 3 (Groq, Claude, Grok) |
+| Skills | 37 enabled |
+| AI Providers | 4 (Groq FREE, Claude Opus/Sonnet, Grok, Perplexity) |
 | Action Handlers | 7 |
-| Projects in Registry | 16 |
+| Projects in Registry | 12 (JUDO, LusoTown, armora, gqcars-manager, gq-cars-driver-app, giquina-accountancy-direct-filing, giquina-website, gq-cars, giquina-portal, moltbook, aws-clawd-bot, clawd-bot) |
 | Scheduled Jobs | 5 (morning-brief, proactive-alerts, nightly-autonomous, end-of-day, heartbeat) |
 | API Endpoints | 9 |
 | MCP Tools | 9 |
-| GitHub Webhooks | 5 repos configured |
+| GitHub Webhooks | Auto-deploy enabled |
+| EC2 Projects | 7 repos cloned at /opt/projects/ |
 
 ---
 
 ## Next Actions (Priority Order)
 
-### Configuration Tasks - ✅ DONE
-1. ~~**Configure GitHub webhooks**~~ - ✅ Set up on 5 repos (aws-clawd-bot, giquina-accountancy, JUDO, LusoTown, GQCars)
-2. **Add XAI_API_KEY to EC2** - Optional, enables Grok for social/X searches
-3. ~~**Set CLAWDBOT_API_KEY on EC2**~~ - ✅ Configured and verified
+### Configuration Tasks
+1. **Add XAI_API_KEY to EC2** - ⬜ Optional, enables Grok for social/X searches
+2. **Add PERPLEXITY_API_KEY to EC2** - ⬜ Optional, enables Perplexity for deep research
 
 ### Testing Tasks
-4. **Test MCP Server** - Configure Claude Desktop with MCP server config (see `mcp-server/claude-desktop-config.json`)
-5. **Test voice commands** - Send voice note with task instructions
+3. **Test MCP Server** - ⬜ Configure Claude Desktop with MCP server config (see `mcp-server/claude-desktop-config.json`)
+4. **Test voice commands** - ⬜ Send voice note with task instructions
+5. **Test auto-deploy** - ⬜ Push to a project repo and verify EC2 auto-pull + Vercel deploy
 
 ### Future Development
-6. **Build Web Dashboard** - Visual config, stats, conversation viewer (Phase 8)
+6. **Build Web Dashboard** - ⬜ Visual config, stats, conversation viewer (Phase 8)
 
 ---
 
@@ -190,6 +191,7 @@
 
 ---
 
-*Last Updated: 2026-02-02*
-*Version: 2.3.1 (OpenClaw Executive Assistant)*
-*Verified: All code complete, deployed to EC2*
+*Last Updated: 2026-02-04*
+*Version: 2.5.0*
+*Status: Production - running 24/7 on AWS EC2 (16.171.150.151)*
+*Verified: All Phase 1-7 features complete and deployed*

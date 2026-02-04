@@ -11,13 +11,14 @@ ClawdBot v2.5 is a **Claude Code Agent** running 24/7 on AWS EC2, controllable v
 ## Commands
 
 ```bash
-# Development
+# Development (all commands run from 02-whatsapp-bot/)
 cd 02-whatsapp-bot && npm install
 npm run dev                    # Development with nodemon auto-reload
 npm start                      # Production mode
+npm test                       # Run test suite (scripts/test-bot.js)
 curl localhost:3000/health     # Health check
 
-# Deploy to AWS EC2 (preferred)
+# Deploy to AWS EC2 (preferred — pushes SSH key automatically)
 ./deploy.sh              # Quick: git pull + restart
 ./deploy.sh full         # Full: git pull + npm install + rebuild better-sqlite3 + restart
 
@@ -34,6 +35,8 @@ ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 "pm2 restart clawd-bot"
 ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 "pm2 logs clawd-bot --lines 50"
 ```
 
+Note: There are no `lint` or `build` scripts — this is a plain Node.js project (no TypeScript, no bundler).
+
 ## Critical Deployment Notes
 
 - **SSH keys expire quickly** — must call `aws ec2-instance-connect send-ssh-public-key` before EVERY SSH/SCP session
@@ -41,11 +44,13 @@ ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 "pm2 logs clawd-bot --line
 - **`config/chat-registry.json`** — NEVER overwrite on EC2. Contains live Telegram group registrations. Marked `assume-unchanged` in git on the server.
 - **`better-sqlite3`** — native module. Windows `.node` files don't work on Linux. After `npm install` on EC2, always run `npm rebuild better-sqlite3`.
 - **Telegram Bot Privacy Mode** — must be OFF for bot to see non-command messages in groups. Set via @BotFather → Bot Settings → Group Privacy → Turn off.
+- **EC2 project paths** — repos cloned for auto-deploy: `/opt/clawd-bot` (this repo), `/opt/projects/JUDO`, `/opt/projects/LusoTown`, `/opt/projects/armora`, `/opt/projects/gqcars-manager`, `/opt/projects/gq-cars-driver-app`, `/opt/projects/giquina-accountancy-direct-filing`. All linked to Vercel. Mapped in `lib/command-whitelist.js` `KNOWN_PROJECTS`.
+- **Telegram handler** — uses long-polling on EC2 (no SSL). Supports webhook mode if `TELEGRAM_WEBHOOK_URL` is set. Uses Telegraf library.
 
 ## Architecture
 
 ```
-Telegram/WhatsApp → Express (index.js) → Hooks → Skills Router (38 skills)
+Telegram/WhatsApp → Express (index.js) → Hooks → Skills Router (37 skills)
                                            ↓
                     ┌──────────────────────┼──────────────────────┐
                     ↓                      ↓                      ↓
@@ -70,6 +75,8 @@ Telegram/WhatsApp → Express (index.js) → Hooks → Skills Router (38 skills)
 
 Voice/Text → Plan Executor → GitHub PRs
              Voice Flow → full pipeline (transcribe→intent→execute→report)
+
+GitHub Push → Auto-Deploy → git pull + vercel --prod → Telegram notification
 
 Scheduler (node-cron) → morning-brief, proactive-alerts, deadline-check, nightly-autonomous
 ```
@@ -162,6 +169,7 @@ Routing: `ai-providers/router.js` classifies queries. Greetings/short → Groq (
 - **Voice plan paths** in index.js must always pass `autoRepo` in the prompt AND `richContext` to `processQuery()` so Claude knows which project the chat is for.
 - **Lazy imports** — context-engine.js and outcome-tracker.js use lazy `require()` to avoid circular dependencies.
 - **Activity log** — in-memory ring buffer (200 entries) at `lib/activity-log.js` for real-time diagnostics.
+- **Auto-deploy on push** — GitHub webhook push to default branch triggers `git pull` + `vercel --prod` on EC2. Requires `VERCEL_TOKEN` env var and project linked via `vercel link`. Projects cloned under `/opt/projects/` on EC2.
 
 ## Adding a New Skill
 
@@ -268,7 +276,7 @@ TWILIO_ACCOUNT_SID=AC...        # Twilio for WhatsApp + Voice
 TWILIO_AUTH_TOKEN=...
 ```
 
-## Skill Categories (38 skills)
+## Skill Categories (37 enabled skills)
 
 | Category | Skills |
 |----------|--------|
@@ -283,6 +291,8 @@ TWILIO_AUTH_TOKEN=...
 | **Research** | research, vercel |
 | **Chat/Platform** | chat-management, hq-commands |
 | **Config** | ai-settings, autonomous-config, audit |
+
+Note: `skills/alerts/` directory exists but is NOT enabled in `skills.json`.
 
 ## Alert Escalation
 
