@@ -1,7 +1,12 @@
 # TASKS.md - Detailed Implementation Tasks
 
+> ⚠️ **OUTDATED** - This file is from v1.0 (2026-01-31) and describes work that has already been completed in v2.5.
+> For current tasks, see **TODO.md** instead.
+
 ## Overview
 This file contains granular, assignable tasks for implementing the ClawdBot upgrade. Tasks are organized by phase and include acceptance criteria.
+
+**Status:** All tasks below (TASK-001 through TASK-018) have been completed as of v2.5.
 
 ---
 
