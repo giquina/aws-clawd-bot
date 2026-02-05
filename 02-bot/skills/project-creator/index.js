@@ -41,6 +41,14 @@ class ProjectCreatorSkill extends BaseSkill {
       usage: 'create app for <description>'
     },
     {
+      pattern: /^(?:let's|lets|i want to|can we|shall we|help me)\s+(?:build|create|make|start|scaffold)\s+(.+)$/i,
+      description: 'Conversational project creation', usage: "let's build <description>"
+    },
+    {
+      pattern: /^(?:i need|we need)\s+(?:a|an|to build|to create|to make)\s+(.+)$/i,
+      description: 'Need-based project creation', usage: 'i need a <description>'
+    },
+    {
       pattern: /^(?:approve|yes)$/i,
       description: 'Approve pending project plan',
       usage: 'approve'
@@ -121,6 +129,18 @@ class ProjectCreatorSkill extends BaseSkill {
         return await this.handleReject(userId);
       }
 
+      // Handle conversational "let's build / i want to create" patterns
+      const conversationalMatch = raw.match(/^(?:let's|lets|i want to|can we|shall we|help me)\s+(?:build|create|make|start|scaffold)\s+(.+)$/i);
+      if (conversationalMatch) {
+        return await this.handleConversationalCreate(conversationalMatch[1], context);
+      }
+
+      // Handle need-based "i need a / we need to build" patterns
+      const needMatch = raw.match(/^(?:i need|we need)\s+(?:a|an|to build|to create|to make)\s+(.+)$/i);
+      if (needMatch) {
+        return await this.handleConversationalCreate(needMatch[1], context);
+      }
+
       // Handle "create app for <description>" - AI-powered plan generation
       const appMatch = raw.match(/^(?:create\s+)?(?:new\s+)?app\s+for\s+(.+)$/i);
       if (appMatch) {
@@ -193,6 +213,31 @@ class ProjectCreatorSkill extends BaseSkill {
     this.pendingPlans.set(userId, plan);
 
     return this.success(this.formatPlanMessage(plan));
+  }
+
+  /**
+   * Handle conversational project creation (let's build / i need)
+   * Asks clarifying questions before generating a full plan
+   */
+  async handleConversationalCreate(description, context) {
+    // Start a designing session if conversation-session is available
+    try {
+      const conversationSession = require('../../lib/conversation-session');
+      conversationSession.startSession(context.chatId, 'designing', {
+        description,
+        projectName: description.split(/\s+/).slice(0, 3).join('-').toLowerCase(),
+      });
+    } catch (e) { /* ignore */ }
+
+    // Use AI to ask clarifying questions instead of immediately planning
+    const response = `Got it — you want to build: *${description}*\n\n` +
+      `Before I set this up, quick questions:\n` +
+      `1. Scope — MVP/weekend project, or full production app?\n` +
+      `2. Tech — any preferences? (React, Next.js, plain HTML, etc.)\n` +
+      `3. Must-haves — any specific features right away?\n\n` +
+      `Or just say "go ahead" and I'll pick sensible defaults.`;
+
+    return this.success(response);
   }
 
   /**

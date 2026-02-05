@@ -322,6 +322,155 @@ Rules:
       return null;
     }
   }
+
+  /**
+   * Amend an existing PR based on user feedback
+   * @param {Object} options
+   * @param {string} options.prUrl - PR URL (e.g., https://github.com/user/repo/pull/42)
+   * @param {string} options.feedback - What the user wants changed
+   * @param {string} options.branch - Branch name of the PR
+   * @param {string} options.repo - Repo name
+   * @param {Function} options.sendProgress - Progress callback
+   * @returns {Promise<{success: boolean, message: string, prUrl?: string}>}
+   */
+  async amend({ prUrl, feedback, branch, repo, sendProgress }) {
+    const progress = sendProgress || (() => {});
+
+    try {
+      this.initClaude();
+      if (!this.claude) {
+        return { success: false, message: 'Claude API not configured' };
+      }
+
+      // Parse PR URL to extract repo and PR number
+      let targetRepo = repo;
+      let prNumber = null;
+      if (prUrl) {
+        const prMatch = prUrl.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+        if (prMatch) {
+          targetRepo = targetRepo || prMatch[2];
+          prNumber = parseInt(prMatch[3]);
+        }
+      }
+
+      if (!targetRepo) {
+        return { success: false, message: 'Could not determine target repository.' };
+      }
+
+      await progress('Reading current PR files...');
+
+      // Get the PR's changed files
+      const files = [];
+      if (prNumber) {
+        try {
+          const prFiles = await this.octokit.pulls.listFiles({
+            owner: this.username,
+            repo: targetRepo,
+            pull_number: prNumber,
+          });
+
+          for (const file of prFiles.data.slice(0, 10)) {
+            if (file.status === 'removed') continue;
+            try {
+              const content = await this.octokit.repos.getContent({
+                owner: this.username,
+                repo: targetRepo,
+                path: file.filename,
+                ref: branch,
+              });
+              files.push({
+                path: file.filename,
+                content: Buffer.from(content.data.content, 'base64').toString('utf8'),
+                sha: content.data.sha,
+              });
+            } catch (e) {
+              console.log(`[PlanExecutor.amend] Could not read ${file.filename}: ${e.message}`);
+            }
+          }
+        } catch (e) {
+          console.log(`[PlanExecutor.amend] Could not list PR files: ${e.message}`);
+        }
+      }
+
+      if (files.length === 0) {
+        return { success: false, message: 'Could not read any files from the PR.' };
+      }
+
+      await progress(`Found ${files.length} file(s). Applying feedback...`);
+
+      // Ask Claude to apply the feedback
+      const fileContext = files.map(f =>
+        `--- ${f.path} ---\n${f.content.substring(0, 5000)}`
+      ).join('\n\n');
+
+      const amendPrompt = `You are editing files in a pull request based on user feedback.
+
+CURRENT PR FILES:
+${fileContext}
+
+USER FEEDBACK: "${feedback}"
+
+For each file that needs changes, return JSON (no markdown fences):
+{
+  "changes": [
+    {"path": "path/to/file", "content": "complete updated file content"}
+  ],
+  "summary": "brief description of what changed"
+}
+
+Only include files that actually need changes. Return the COMPLETE file content, not diffs.`;
+
+      const response = await this.claude.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8000,
+        messages: [{ role: 'user', content: amendPrompt }],
+      });
+
+      let changes;
+      try {
+        const text = response.content[0].text.trim()
+          .replace(/^```json?\n?/, '').replace(/\n?```$/, '').trim();
+        changes = JSON.parse(text);
+      } catch (e) {
+        return { success: false, message: 'Failed to parse amendment changes.' };
+      }
+
+      if (!changes.changes || changes.changes.length === 0) {
+        return { success: true, message: 'No changes needed based on the feedback.' };
+      }
+
+      await progress(`Committing ${changes.changes.length} updated file(s)...`);
+
+      // Commit each changed file to the PR branch
+      for (const change of changes.changes) {
+        const existingFile = files.find(f => f.path === change.path);
+        const commitData = {
+          owner: this.username,
+          repo: targetRepo,
+          path: change.path,
+          message: `Update ${change.path}\n\n${feedback.substring(0, 100)}\n\nAmended via ClawdBot`,
+          content: Buffer.from(change.content).toString('base64'),
+          branch: branch,
+        };
+        if (existingFile?.sha) {
+          commitData.sha = existingFile.sha;
+        }
+
+        await this.octokit.repos.createOrUpdateFileContents(commitData);
+      }
+
+      const resultMsg = `✅ PR updated!\n\n` +
+        `${changes.summary || 'Changes applied'}\n` +
+        `Files: ${changes.changes.map(c => '`' + c.path + '`').join(', ')}\n\n` +
+        `${prUrl}`;
+
+      return { success: true, message: resultMsg, prUrl };
+
+    } catch (error) {
+      console.error('[PlanExecutor.amend] Error:', error);
+      return { success: false, message: `Amendment failed: ${error.message}` };
+    }
+  }
 }
 
 module.exports = new PlanExecutor();

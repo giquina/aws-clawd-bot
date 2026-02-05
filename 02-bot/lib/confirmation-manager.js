@@ -6,8 +6,9 @@
  * @module lib/confirmation-manager
  */
 
-// Pending confirmation timeout (5 minutes)
+// Pending confirmation timeout (5 minutes for actions, 15 minutes for plans)
 const CONFIRMATION_TTL = 5 * 60 * 1000;
+const PLAN_CONFIRMATION_TTL = 15 * 60 * 1000;
 
 // Cleanup interval (1 minute)
 const CLEANUP_INTERVAL = 60 * 1000;
@@ -136,17 +137,42 @@ const CONFIRMATION_PATTERNS = {
  * @returns {PendingConfirmation} The stored pending confirmation
  */
 function setPending(userId, action, params, context = {}) {
+  const isPlanAction = action === 'voice_plan' || action === 'text_plan';
   const pending = {
     action,
     params: params || {},
     context: context || {},
     createdAt: Date.now(),
+    ttl: isPlanAction ? PLAN_CONFIRMATION_TTL : CONFIRMATION_TTL,
     confirmationMessage: formatConfirmationRequest(action, params)
   };
 
   pendingConfirmations.set(userId, pending);
 
-  console.log(`[ConfirmationManager] Pending set for ${userId}: ${action}`);
+  // Persist plan-type confirmations to database (survive restarts)
+  if (isPlanAction) {
+    try {
+      const database = require('./database');
+      if (database.getDb && database.getDb()) {
+        const db = database.getDb();
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS pending_confirmations (
+            user_id TEXT PRIMARY KEY,
+            action TEXT NOT NULL,
+            params_json TEXT,
+            context_json TEXT,
+            created_at INTEGER NOT NULL,
+            ttl INTEGER NOT NULL
+          )
+        `);
+        db.prepare(
+          'INSERT OR REPLACE INTO pending_confirmations (user_id, action, params_json, context_json, created_at, ttl) VALUES (?, ?, ?, ?, ?, ?)'
+        ).run(userId, action, JSON.stringify(pending.params), JSON.stringify(pending.context), pending.createdAt, pending.ttl);
+      }
+    } catch (e) { /* database may not be available */ }
+  }
+
+  console.log(`[ConfirmationManager] Pending set for ${userId}: ${action} (TTL: ${pending.ttl / 60000}min)`);
   return pending;
 }
 
@@ -156,16 +182,41 @@ function setPending(userId, action, params, context = {}) {
  * @returns {PendingConfirmation|null} Pending confirmation or null if none/expired
  */
 function getPending(userId) {
-  const pending = pendingConfirmations.get(userId);
+  let pending = pendingConfirmations.get(userId);
+
+  // Try loading from database on cache miss (survives restarts)
+  if (!pending) {
+    try {
+      const database = require('./database');
+      if (database.getDb && database.getDb()) {
+        const row = database.getDb().prepare(
+          'SELECT * FROM pending_confirmations WHERE user_id = ?'
+        ).get(userId);
+        if (row) {
+          pending = {
+            action: row.action,
+            params: JSON.parse(row.params_json || '{}'),
+            context: JSON.parse(row.context_json || '{}'),
+            createdAt: row.created_at,
+            ttl: row.ttl || CONFIRMATION_TTL,
+            confirmationMessage: '',
+          };
+          pendingConfirmations.set(userId, pending); // Re-cache
+        }
+      }
+    } catch (e) { /* database may not be available */ }
+  }
 
   if (!pending) {
     return null;
   }
 
-  // Check if expired
-  if (Date.now() - pending.createdAt > CONFIRMATION_TTL) {
+  // Check if expired (use per-entry TTL if available)
+  const ttl = pending.ttl || CONFIRMATION_TTL;
+  if (Date.now() - pending.createdAt > ttl) {
     console.log(`[ConfirmationManager] Pending expired for ${userId}: ${pending.action}`);
     pendingConfirmations.delete(userId);
+    _clearPersisted(userId);
     return null;
   }
 
@@ -186,6 +237,7 @@ function confirm(userId) {
   }
 
   pendingConfirmations.delete(userId);
+  _clearPersisted(userId);
   console.log(`[ConfirmationManager] Confirmed for ${userId}: ${pending.action}`);
   return pending;
 }
@@ -204,8 +256,22 @@ function cancel(userId) {
   }
 
   pendingConfirmations.delete(userId);
+  _clearPersisted(userId);
   console.log(`[ConfirmationManager] Cancelled for ${userId}: ${pending.action}`);
   return true;
+}
+
+/**
+ * Clear persisted confirmation from database
+ * @private
+ */
+function _clearPersisted(userId) {
+  try {
+    const database = require('./database');
+    if (database.getDb && database.getDb()) {
+      database.getDb().prepare('DELETE FROM pending_confirmations WHERE user_id = ?').run(userId);
+    }
+  } catch (e) { /* ignore */ }
 }
 
 /**

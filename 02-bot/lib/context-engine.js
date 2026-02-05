@@ -63,6 +63,14 @@ function getProjectManager() {
   return _projectManager || null;
 }
 
+let _conversationSession = null;
+function getConversationSession() {
+  if (!_conversationSession) {
+    try { _conversationSession = require('./conversation-session'); } catch (e) { _conversationSession = false; }
+  }
+  return _conversationSession || null;
+}
+
 /**
  * Build a comprehensive context object for the current message.
  *
@@ -137,6 +145,9 @@ async function build({ chatId, userId, platform = 'telegram', message = '', auto
   // 6. Recent deployments & plans
   tasks.push(buildRecentDeploymentsAndPlans(context, chatId));
 
+  // 7. Active conversation session
+  tasks.push(buildSessionContext(context, chatId));
+
   await Promise.allSettled(tasks);
 
   context.buildTimeMs = Date.now() - startTime;
@@ -204,7 +215,16 @@ async function buildConversationHistory(context, chatId, userId) {
   if (!memory) return;
 
   try {
-    const history = memory.getConversationForClaude(chatId || userId, 15);
+    // Dynamic history limit: extend to 50 during active design/planning sessions
+    let historyLimit = 15;
+    const cs = getConversationSession();
+    if (cs) {
+      const session = cs.getSession(chatId || userId);
+      if (session && ['designing', 'planning'].includes(session.mode)) {
+        historyLimit = 50;
+      }
+    }
+    const history = memory.getConversationForClaude(chatId || userId, historyLimit);
     if (history && history.length > 0) {
       context.conversationHistory = history;
 
@@ -390,6 +410,11 @@ function formatForSystemPrompt(ctx) {
     sections.push(`\n🔄 Recent bot activity:\n${activityList}`);
   }
 
+  // Active conversation session
+  if (ctx.activeSession) {
+    sections.push(ctx.activeSession);
+  }
+
   if (sections.length === 0) return '';
 
   return '\n\n' + '═'.repeat(50) + '\n' +
@@ -400,6 +425,23 @@ function formatForSystemPrompt(ctx) {
     'Use this context to give intelligent, project-aware responses.\n' +
     'Remember what was discussed. Know what project this chat is for.\n' +
     'Be proactive — suggest next steps based on what you see.\n';
+}
+
+/**
+ * Build active conversation session context
+ */
+async function buildSessionContext(context, chatId) {
+  const cs = getConversationSession();
+  if (!cs) return;
+
+  try {
+    const sessionCtx = cs.buildSessionContext(chatId);
+    if (sessionCtx) {
+      context.activeSession = sessionCtx;
+    }
+  } catch (e) {
+    // Ignore — conversation-session module may not be available yet
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────

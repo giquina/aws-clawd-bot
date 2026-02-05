@@ -48,12 +48,27 @@ class SmartRouter {
 
       // Messages ending with question mark
       /\?\s*$/,
+
+      // Design/scope follow-up discussions
+      /^(what about|how about|instead of|rather than|maybe we|maybe just)\s/i,
+      /^(for now|to start|initially|first|as a v1|as an mvp)\b/i,
     ];
 
     const isPassthrough = passthroughPatterns.some(p => p.test(message.trim()));
     if (isPassthrough) {
       console.log(`[SmartRouter] Passthrough (conversational): "${message.substring(0, 50)}"`);
       return message; // Return unchanged — AI handler will process it
+    }
+
+    // === CONVERSATIONAL BUILD GUARD ===
+    // Natural project discussions — direct to AI, skip expensive aiRoute()
+    const isConversationalBuild =
+      /^(hey|hi|let's|lets|i want|i'd like|i need|can you|could you|we should|shall we)\b/i.test(message.trim()) &&
+      /\b(build|create|make|develop|implement|design|plan|scaffold|setup|start|prototype)\b/i.test(message.trim());
+
+    if (isConversationalBuild) {
+      console.log(`[SmartRouter] Conversational build request, direct to AI: "${message.substring(0, 60)}"`);
+      return message;
     }
 
     // Skip if already looks like a command
@@ -77,6 +92,8 @@ class SmartRouter {
       /^(write|code|program|develop|scaffold)/i,
       /\b(navigation|navbar|sidebar|header|footer|button|form|modal|page|component|feature)\b/i,
       /\b(like|similar to|same as|copy from|based on)\b.*\b(app|project|repo|site)\b/i,
+      /^(build|create|start|scaffold)\s+(me\s+)?(a|an|the|some)/i,
+      /^(let's|lets|i want to|i'd like to)\s+(build|create|make|add|implement)/i,
     ];
     if (codingPatterns.some(p => p.test(message.trim()))) {
       console.log(`[SmartRouter] Coding instruction, passing to AI: "${message.substring(0, 60)}"`);

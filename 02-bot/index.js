@@ -1091,6 +1091,50 @@ app.post('/telegram', async (req, res) => {
     }
 });
 
+/**
+ * Detect if a text message is a substantial coding instruction that should trigger the plan flow.
+ * Same logic as voice detection (codingKeywords + codingContext) but for text.
+ * Returns true if the message should create a plan, false otherwise.
+ */
+function detectTextPlanCandidate(message) {
+    if (!message || typeof message !== 'string') return false;
+
+    const msg = message.trim();
+    const wordCount = msg.split(/\s+/).length;
+
+    // Don't trigger for very short messages
+    if (wordCount < 5) return false;
+
+    // Don't trigger for questions
+    if (/\?\s*$/.test(msg)) return false;
+
+    // Don't trigger for greetings/acknowledgments
+    if (/^(hey|hi|hello|yo|thanks|ok|sure|yes|no|yeah|nah)\s*[!.]*$/i.test(msg)) return false;
+
+    const codingKeywords = ['add', 'create', 'build', 'implement', 'make', 'change', 'update', 'modify',
+        'fix', 'remove', 'delete', 'move', 'replace', 'redesign', 'refactor', 'style', 'integrate',
+        'connect', 'optimize', 'improve', 'scaffold', 'set up', 'setup'];
+    const codingContextWords = ['page', 'component', 'feature', 'button', 'nav', 'navigation', 'sidebar',
+        'header', 'footer', 'form', 'modal', 'layout', 'design', 'app', 'site', 'api', 'endpoint',
+        'function', 'database', 'table', 'screen', 'view', 'section', 'bar', 'menu', 'route',
+        'middleware', 'auth', 'login', 'dashboard', 'project', 'tool', 'service'];
+
+    const msgLower = msg.toLowerCase();
+    const hasCodingKeyword = codingKeywords.some(kw => msgLower.includes(kw));
+    const hasCodingContext = codingContextWords.some(kw => msgLower.includes(kw));
+
+    // Project creation intent: "build/create/make an app/tool/project"
+    const hasProjectIntent = /\b(build|create|make|start|scaffold)\b.*\b(app|project|tool|website|service|bot|dashboard|prototype)\b/i.test(msg);
+
+    // Trigger plan flow for:
+    // 1. Coding keyword + coding context word (like "add a login page")
+    // 2. Project creation intent with substantial length ("build me a task tracker app with...")
+    // 3. Long message with coding keyword (>20 words with implementation details)
+    return (hasCodingKeyword && hasCodingContext) ||
+           (hasProjectIntent && wordCount > 8) ||
+           (wordCount > 20 && hasCodingKeyword);
+}
+
 // Classify user response naturally - understands "yep", "sure", "go ahead", voice notes, etc.
 async function classifyUserResponse(message, pendingAction) {
     const msg = (message || '').toLowerCase().trim();
@@ -1180,11 +1224,71 @@ async function processMessageForTelegram(incomingMsg, context) {
             console.log(`[AutoContext] Telegram chat ${chatId} -> company: ${autoCompany}`);
         }
 
+        // SESSION RESUME — check if user is returning after inactivity
+        try {
+            const conversationSession = require('./lib/conversation-session');
+            const resumeMsg = conversationSession.checkResume(chatId || userId);
+            if (resumeMsg) {
+                console.log(`[SessionResume] Resuming session for ${chatId || userId}`);
+                const { getTelegramHandler } = require('./telegram-handler');
+                const tg = getTelegramHandler();
+                if (tg.isAvailable() && chatId) {
+                    await tg.sendMessage(chatId, resumeMsg);
+                }
+            }
+            // Touch session on any activity
+            if (conversationSession.isActive(chatId || userId)) {
+                conversationSession.touchSession(chatId || userId);
+            }
+        } catch (e) { /* conversation-session may not be loaded yet */ }
+
+        // ITERATIVE FEEDBACK — if session is in 'iterating' mode, detect amendment requests
+        if (incomingMsg && !mediaContentType?.startsWith('audio/')) {
+            try {
+                const conversationSession = require('./lib/conversation-session');
+                const sessionMode = conversationSession.getMode(chatId || userId);
+                if (sessionMode === 'iterating') {
+                    const session = conversationSession.getSession(chatId || userId);
+                    const isAmendment = /\b(change|update|modify|fix|adjust|tweak|also add|but make|instead|move|rename|swap|remove|delete)\b/i.test(incomingMsg);
+
+                    if (isAmendment && session?.lastPrUrl && session?.lastBranch) {
+                        console.log(`[Iterate] Amendment detected for PR: ${session.lastPrUrl}`);
+                        activityLog.log('activity', 'iterate', `Amending PR: ${incomingMsg.substring(0, 60)}`, { userId });
+
+                        try {
+                            const planExecutor = require('./lib/plan-executor');
+                            const { getTelegramHandler } = require('./telegram-handler');
+                            const tg = getTelegramHandler();
+
+                            const result = await planExecutor.amend({
+                                prUrl: session.lastPrUrl,
+                                feedback: incomingMsg,
+                                branch: session.lastBranch,
+                                repo: session.repo || autoRepo,
+                                sendProgress: async (msg) => {
+                                    if (tg.isAvailable() && chatId) {
+                                        await tg.sendMessage(chatId, `⏳ ${msg}`);
+                                    }
+                                }
+                            });
+
+                            const responseText = result.success ? result.message : `Could not amend: ${result.message}`;
+                            if (memory) memory.saveMessage(chatId || userId, 'assistant', responseText);
+                            return responseText;
+                        } catch (err) {
+                            console.error('[Iterate] Amend error:', err.message);
+                            // Fall through to normal processing
+                        }
+                    }
+                }
+            } catch (e) { /* ignore */ }
+        }
+
         // CHECK FOR ACTIVE CONVERSATION CONTEXT (plans, confirmations)
         if (confirmationManager && confirmationManager.hasPending(userId)) {
             const pending = confirmationManager.getPending(userId);
 
-            if (pending && pending.action === 'voice_plan') {
+            if (pending && (pending.action === 'voice_plan' || pending.action === 'text_plan')) {
                 // If this is a voice note, transcribe it FIRST before processing
                 let userMessage = incomingMsg;
                 const isVoiceFollowUp = mediaContentType && mediaContentType.startsWith('audio/');
@@ -1243,14 +1347,26 @@ async function processMessageForTelegram(incomingMsg, context) {
 
                             execResponse = result.message;
 
-                            // Smart follow-up: suggest deploying after PR creation
+                            // Smart follow-up: transition session to iterating mode
                             if (result?.prUrl) {
+                                // Transition session to iterating mode for feedback loop
+                                try {
+                                    const conversationSession = require('./lib/conversation-session');
+                                    const branchMatch = result.message?.match(/Branch:\s*`([^`]+)`/);
+                                    conversationSession.startSession(chatId || userId, 'iterating', {
+                                        lastPrUrl: result.prUrl,
+                                        lastBranch: branchMatch?.[1] || null,
+                                        lastAction: 'Created PR',
+                                        repo: autoRepo,
+                                    });
+                                } catch (e) { /* ignore */ }
+
                                 setTimeout(async () => {
                                     try {
                                         const followUpTelegram = getTelegramHandler();
                                         if (followUpTelegram?.isAvailable() && chatId) {
                                             await followUpTelegram.sendMessage(chatId,
-                                                `💡 When you're ready, say "deploy to vercel" to see it live.`
+                                                `💡 You can now say "change X" to tweak the PR, or "deploy to vercel" to see it live.`
                                             );
                                         }
                                     } catch (e) {
@@ -1351,6 +1467,69 @@ async function processMessageForTelegram(incomingMsg, context) {
                 autoCompany
             };
             processedMsg = await hooks.preprocess(incomingMsg, hookContext);
+        }
+
+        // TEXT PLAN DETECTION — give text same treatment as voice for substantial coding instructions
+        if (!isVoiceMessage && processedMsg && processedMsg === incomingMsg && confirmationManager && !confirmationManager.hasPending(userId)) {
+            const textPlanResult = detectTextPlanCandidate(processedMsg);
+            if (textPlanResult) {
+                console.log(`[TextPlan] Coding instruction detected (${processedMsg.split(/\s+/).length} words), creating plan...`);
+                activityLog.log('activity', 'text-plan', `Text plan detected: "${processedMsg.substring(0, 60)}"`, { userId });
+
+                try {
+                    // Start a designing session
+                    try {
+                        const conversationSession = require('./lib/conversation-session');
+                        conversationSession.startSession(chatId || userId, 'designing', {
+                            originalInstruction: processedMsg,
+                            description: processedMsg,
+                        });
+                    } catch (e) { /* conversation-session may not be loaded yet */ }
+
+                    // Build rich context so Claude knows which project this chat is for
+                    let textPlanRichCtx = null;
+                    try {
+                        const ctxEngine = require('./lib/context-engine');
+                        textPlanRichCtx = await ctxEngine.build({
+                            chatId: chatId || userId, userId, platform: 'telegram',
+                            message: processedMsg, autoRepo, autoCompany,
+                        });
+                    } catch (e) { /* ignore */ }
+
+                    const projectHint = autoRepo
+                        ? `\n\nPROJECT CONTEXT: This chat is dedicated to the "${autoRepo}" project. The user is talking about THIS project. Use "${autoRepo}" as the target repo for all operations.\n`
+                        : '';
+
+                    const planPrompt = `You're a helpful pair-programming partner. The user typed a coding instruction.${projectHint}\n\n` +
+                        `USER INSTRUCTION: "${processedMsg}"\n\n` +
+                        `Respond naturally:\n` +
+                        `1. Briefly confirm what you understood\n` +
+                        `2. List the specific tasks you'll do (mention the project name: ${autoRepo || 'unknown'})\n` +
+                        `3. If anything is unclear, ask ONE clarifying question\n` +
+                        `4. If everything is clear, ask if they'd like you to proceed\n\n` +
+                        `Be conversational and friendly. Talk like a helpful colleague.`;
+
+                    const planResponse = await aiHandler.processQuery(
+                        planPrompt,
+                        { userId, taskType: 'planning', richContext: textPlanRichCtx }
+                    );
+
+                    if (confirmationManager) {
+                        confirmationManager.setPending(userId, 'text_plan', {
+                            transcript: processedMsg,
+                            plan: planResponse,
+                        });
+                        console.log('[TextPlan] Plan stored for conversation');
+                        activityLog.log('activity', 'ai', 'Text plan created. Waiting for user confirmation...', { userId });
+                    }
+
+                    if (memory) memory.saveMessage(chatId || userId, 'assistant', planResponse);
+                    return planResponse;
+                } catch (err) {
+                    console.error('[TextPlan] Error creating plan:', err.message);
+                    // Fall through to normal processing
+                }
+            }
         }
 
         // TRY SKILL ROUTING FIRST
@@ -1635,6 +1814,15 @@ async function processMessageForTelegram(incomingMsg, context) {
             if (memory) {
                 memory.saveMessage(chatId || userId, 'assistant', response);
             }
+
+            // Decision extraction — auto-track choices during active sessions
+            try {
+                const conversationSession = require('./lib/conversation-session');
+                if (conversationSession.isActive(chatId || userId)) {
+                    conversationSession.extractAndSaveDecisions(chatId || userId, processedMsg, response);
+                }
+            } catch (e) { /* ignore */ }
+
             return response;
         }
 

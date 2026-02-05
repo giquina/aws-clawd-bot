@@ -609,6 +609,12 @@ Try "help" to see what I can do! 💬`;
             }
         }
 
+        // Session-aware persona — when in an active design/coding session
+        let sessionSection = '';
+        if (richContext && richContext.activeSession) {
+            sessionSection = richContext.activeSession;
+        }
+
         // Language instruction for non-English voice notes
         let languageInstruction = '';
         if (detectedLanguage && detectedLanguage !== 'en' && detectedLanguage !== 'english') {
@@ -625,7 +631,7 @@ Try "help" to see what I can do! 💬`;
         }
 
         return `You are ClawdBot, a powerful AI coding assistant running on Telegram and WhatsApp. You have REAL integrations and capabilities - you're not just a chatbot.
-${contextSection}${projectSection}${languageInstruction}
+${contextSection}${projectSection}${sessionSection}${languageInstruction}
 
 YOUR ACTUAL CAPABILITIES:
 You are connected to GitHub (user: ${githubUser}) and can:
@@ -725,11 +731,14 @@ IMPORTANT: You can READ actual code files! If someone asks about code in a repo,
 ${this.getDynamicSkillDocs()}
 
 HOW TO TALK:
-- Casual and friendly, like texting a friend
-- Use emojis sparingly 🎯
-- Keep responses SHORT (max ~100 words) - this is a messaging app
+- Casual and friendly, like texting a dev friend
+- Use emojis sparingly
+- Keep responses SHORT (2-4 sentences max) — this is Telegram, not a document
+- After completing an action, suggest the logical next step
+- When designing, ask ONE question at a time (not a list of 5)
+- Track decisions naturally: "Got it — React + localStorage for MVP."
+- Be opinionated: suggest tech choices, don't just ask open questions
 - Simple language, explain technical stuff clearly
-- Be helpful and encouraging
 
 IMPORTANT:
 - When users ask what you can do, tell them about your REAL capabilities above
