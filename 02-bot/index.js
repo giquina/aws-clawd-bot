@@ -316,6 +316,12 @@ app.post('/api/message', apiAuth, async (req, res) => {
         const effectiveUserId = userId || chatId || 'dashboard-coworker';
         const platform = 'dashboard';
 
+        // Detect Coworker Mode — skip skills, go straight to conversational AI
+        const isCoworkerMode = message.startsWith('[Dashboard Coworker Mode]');
+        const cleanMessage = isCoworkerMode
+            ? message.replace('[Dashboard Coworker Mode] ', '').trim()
+            : message;
+
         // Get auto-context from chat registry (use HQ context for dashboard)
         let autoRepo = null;
         let autoCompany = null;
@@ -330,37 +336,40 @@ app.post('/api/message', apiAuth, async (req, res) => {
 
         // Save to memory
         if (memory) {
-            memory.saveMessage(effectiveUserId, 'user', message);
+            memory.saveMessage(effectiveUserId, 'user', cleanMessage);
         }
 
-        // Process through skills or AI
         let response = null;
         let handled = false;
 
-        // Preprocess with smart router (with auto-context)
-        const processedMsg = await hooks.preprocess(message, {
-            userId: effectiveUserId,
-            autoRepo,
-            autoCompany,
-        });
-
-        // Try skills first (with full context)
-        if (skillRegistry) {
-            const result = await skillRegistry.route(processedMsg, {
+        // Coworker Mode: skip skills entirely, go direct to AI with full context
+        // Regular API messages: try skills first, then AI fallback
+        if (!isCoworkerMode) {
+            // Preprocess with smart router (with auto-context)
+            const processedMsg = await hooks.preprocess(cleanMessage, {
                 userId: effectiveUserId,
-                memory: memory,
                 autoRepo,
                 autoCompany,
-                platform,
             });
 
-            if (result && result.handled) {
-                response = result.message;
-                handled = true;
+            // Try skills first (with full context)
+            if (skillRegistry) {
+                const result = await skillRegistry.route(processedMsg, {
+                    userId: effectiveUserId,
+                    memory: memory,
+                    autoRepo,
+                    autoCompany,
+                    platform,
+                });
+
+                if (result && result.handled) {
+                    response = result.message;
+                    handled = true;
+                }
             }
         }
 
-        // Fallback to AI — with full context engine (same as Telegram pipeline)
+        // AI handler with full context engine (same as Telegram pipeline)
         if (!handled) {
             let richContext = null;
             try {
@@ -369,7 +378,7 @@ app.post('/api/message', apiAuth, async (req, res) => {
                     chatId: effectiveUserId,
                     userId: effectiveUserId,
                     platform,
-                    message,
+                    message: cleanMessage,
                     autoRepo,
                     autoCompany,
                 });
@@ -377,7 +386,7 @@ app.post('/api/message', apiAuth, async (req, res) => {
                 console.error('[API/message] Context engine build failed:', ctxErr.message);
             }
 
-            response = await aiHandler.processQuery(message, {
+            response = await aiHandler.processQuery(cleanMessage, {
                 userId: effectiveUserId,
                 platform,
                 autoRepo,
@@ -389,13 +398,12 @@ app.post('/api/message', apiAuth, async (req, res) => {
         // Save response and extract facts
         if (memory) {
             memory.saveMessage(effectiveUserId, 'assistant', response);
-            extractAndSaveFacts(effectiveUserId, message);
+            extractAndSaveFacts(effectiveUserId, cleanMessage);
         }
 
         res.json({
             success: true,
             message: response,
-            processed: processedMsg !== message ? processedMsg : null
         });
 
     } catch (error) {
