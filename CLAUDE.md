@@ -564,6 +564,279 @@ DND: 23:00-07:00, EMERGENCY/CRITICAL bypass. Acknowledge with `ack <alert-id>`.
 
 Used by accountancy skills: GMH (15425137), GACC (16396650), GCAP (16360342), GQCARS (15389347), GSPV (16369465).
 
+## Browser Automation (claude-in-chrome MCP Server)
+
+**Usage:** Heavy browser automation tool usage (14,316+ combined invocations from insights analysis). Core workflow integration for testing, validation, and UI verification.
+
+### Core Capabilities
+
+#### 1. **Page Interaction**
+```javascript
+// Navigate to URL
+navigate({ url: "https://example.com", tabId })
+
+// Take screenshots
+computer({ action: "screenshot", tabId })
+
+// Click elements
+computer({ action: "left_click", coordinate: [x, y], tabId })
+
+// Type text
+computer({ action: "type", text: "hello world", tabId })
+
+// Scroll page
+computer({ action: "scroll", scroll_direction: "down", tabId })
+```
+
+#### 2. **Page Reading & Analysis**
+```javascript
+// Get accessibility tree (default: all elements)
+read_page({ tabId, filter: "interactive" })  // buttons/links/inputs only
+read_page({ tabId, depth: 10 })              // limit tree depth
+
+// Extract text content (article-focused)
+get_page_text({ tabId })
+
+// Find elements by natural language
+find({ query: "search button", tabId })
+find({ query: "product title containing organic", tabId })
+
+// Read console messages
+read_console_messages({ tabId, pattern: "error|warning" })
+
+// Read network requests
+read_network_requests({ tabId, urlPattern: "/api/" })
+```
+
+#### 3. **Form Interaction**
+```javascript
+// Set form values using ref IDs from read_page
+form_input({ ref: "ref_1", value: "example@email.com", tabId })
+form_input({ ref: "ref_2", value: true, tabId })  // checkbox
+```
+
+#### 4. **Advanced Features**
+```javascript
+// Execute JavaScript in page context
+javascript_tool({
+    action: "javascript_exec",
+    text: "document.title",  // No 'return' keyword needed
+    tabId
+})
+
+// Create GIF recordings of workflows
+gif_creator({ action: "start_recording", tabId })
+computer({ action: "screenshot", tabId })  // Capture frames
+gif_creator({ action: "stop_recording", tabId })
+gif_creator({ action: "export", download: true, tabId })
+
+// Upload images
+upload_image({ imageId: "screenshot_123", ref: "ref_5", tabId })
+
+// Resize window (for responsive testing)
+resize_window({ width: 1920, height: 1080, tabId })
+```
+
+#### 5. **Tab Management**
+```javascript
+// Get current tab context (REQUIRED before other operations)
+tabs_context_mcp({ createIfEmpty: true })
+
+// Create new tab
+tabs_create_mcp()
+```
+
+### Common Use Cases
+
+#### End-to-End Testing
+```javascript
+// 1. Get tab context
+const { tabs } = await tabs_context_mcp({ createIfEmpty: true });
+const tabId = tabs[0].id;
+
+// 2. Navigate
+await navigate({ url: "https://app.example.com/login", tabId });
+
+// 3. Fill login form
+const page = await read_page({ tabId, filter: "interactive" });
+await form_input({ ref: "username_ref", value: "test@example.com", tabId });
+await form_input({ ref: "password_ref", value: "password123", tabId });
+
+// 4. Click submit
+await computer({ action: "left_click", coordinate: [500, 400], tabId });
+
+// 5. Verify success
+await computer({ action: "wait", duration: 2, tabId });
+const result = await get_page_text({ tabId });
+// Check if result contains "Dashboard"
+```
+
+#### UI Regression Detection
+```javascript
+// Take baseline screenshot
+await computer({ action: "screenshot", tabId });
+
+// Make code changes, reload page
+
+// Take comparison screenshot
+await computer({ action: "screenshot", tabId });
+
+// Visual diff (manual comparison or automated tool)
+```
+
+#### Form Automation
+```javascript
+// Find all form fields
+const page = await read_page({ tabId, filter: "interactive" });
+
+// Fill based on field types
+for (const element of page.elements) {
+    if (element.type === "text") {
+        await form_input({ ref: element.ref, value: "test data", tabId });
+    }
+}
+```
+
+#### GIF Workflow Recording
+```javascript
+// Start recording
+await gif_creator({ action: "start_recording", tabId });
+await computer({ action: "screenshot", tabId });  // Initial frame
+
+// Perform actions
+await computer({ action: "left_click", coordinate: [100, 200], tabId });
+await computer({ action: "wait", duration: 1, tabId });
+await computer({ action: "screenshot", tabId });
+
+await computer({ action: "type", text: "Hello", tabId });
+await computer({ action: "screenshot", tabId });
+
+// Stop and export
+await computer({ action: "screenshot", tabId });  // Final frame
+await gif_creator({ action: "stop_recording", tabId });
+await gif_creator({
+    action: "export",
+    download: true,
+    filename: "workflow-demo.gif",
+    tabId
+});
+```
+
+### Quirks & Limitations
+
+#### ⚠️ Critical Limitations
+
+1. **Tab Context Required First**
+   - MUST call `tabs_context_mcp()` before any browser operations
+   - Tab IDs from previous sessions are invalid
+   - Always get fresh tab IDs when starting
+
+2. **Case Sensitivity in Tool Names**
+   - Tool fragmentation detected: `mcp__claude-in-chrome__computer` vs `mcp__Claude_in_Chrome__computer`
+   - Use consistent casing to avoid duplicate configurations
+   - Recommend: lowercase with hyphens (canonical form)
+
+3. **JavaScript Execution Syntax**
+   - Do NOT use `return` statements in javascript_tool
+   - Last expression is automatically returned
+   - ✅ Correct: `text: "document.title"`
+   - ❌ Wrong: `text: "return document.title"`
+
+4. **Screenshot Timing**
+   - Always use `computer({ action: "wait", duration: 2 })` before screenshots
+   - Pages need time to render/animate
+   - Network requests may be in-flight
+
+5. **GIF Recording Best Practices**
+   - Take screenshot IMMEDIATELY after start_recording (captures initial state)
+   - Take screenshot IMMEDIATELY before stop_recording (captures final state)
+   - Capture extra frames before/after actions for smooth playback
+
+6. **Modal Dialogs (CRITICAL)**
+   - ⚠️ DO NOT trigger JavaScript alerts, confirms, or prompts
+   - Browser dialogs block ALL events and prevent extension commands
+   - If triggered accidentally, user must manually dismiss
+   - Alternative: Use `console.log()` + `read_console_messages()`
+
+#### 🔧 Configuration Issues
+
+**Tool Duplication:**
+- Insights show 8,578 calls to one variant, 5,738 to another
+- Indicates inconsistent MCP server registration
+- Check `.claude/settings.json` or MCP config for duplicates
+- Unify to single canonical tool name
+
+**Recommended MCP Config:**
+```json
+{
+  "mcpServers": {
+    "claude-in-chrome": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-claude-in-chrome"]
+    }
+  }
+}
+```
+
+#### 💡 Performance Tips
+
+1. **Use `filter: "interactive"` for faster page reads**
+   - Default reads ALL elements (can be slow on complex pages)
+   - `filter: "interactive"` only returns actionable elements
+
+2. **Set `depth` parameter to limit tree traversal**
+   - Default depth: 15 (can timeout on deep DOMs)
+   - Use `depth: 5-10` for faster reads on known structures
+
+3. **Use `find()` for targeted element search**
+   - More efficient than reading entire page
+   - Natural language: "login button", "search field"
+
+4. **Cache network requests with `read_network_requests()`**
+   - Requests auto-cleared on domain navigation
+   - Use `clear: true` to avoid duplicates on subsequent reads
+
+5. **Pattern filter console messages**
+   - `pattern: "error|warning"` to avoid verbose logs
+   - Prevents overwhelming output from chatty apps
+
+### Integration with ClawdBot
+
+**Use cases:**
+- Test ClawdBot web dashboard (if it has one)
+- Verify Vercel deployments visually
+- Automate GitHub PR review flows
+- Test responsive designs across window sizes
+- Record GIF demos of new features for documentation
+
+**Example workflow:**
+```javascript
+// Deploy new feature
+await remoteExec({ command: "vercel --prod", repo: "JUDO" });
+
+// Wait for deployment
+await computer({ action: "wait", duration: 30 });
+
+// Visual verification
+const { tabs } = await tabs_context_mcp({ createIfEmpty: true });
+await navigate({ url: "https://judo-prod.vercel.app", tabId: tabs[0].id });
+await computer({ action: "wait", duration: 3, tabId: tabs[0].id });
+const screenshot = await computer({ action: "screenshot", tabId: tabs[0].id });
+
+// Check for errors in console
+const errors = await read_console_messages({
+    tabId: tabs[0].id,
+    pattern: "error",
+    onlyErrors: true
+});
+
+if (errors.length > 0) {
+    // Rollback or alert
+}
+```
+
+---
+
 ## API Endpoints
 
 | Endpoint | Method | Description |
