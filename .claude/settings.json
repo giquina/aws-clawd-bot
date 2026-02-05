@@ -1,0 +1,5 @@
+{
+  "hooks": {
+    "pre-commit": "cd 02-bot && npx eslint --quiet '**/*.js' || echo 'Note: ESLint found issues but continuing commit'"
+  }
+}

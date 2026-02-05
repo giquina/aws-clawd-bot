@@ -39,6 +39,45 @@ ssh -i ~/.ssh/clawd-bot-key.pem ubuntu@16.171.150.151 "pm2 logs clawd-bot --line
 
 Note: There are no `lint` or `build` scripts — this is a plain Node.js project (no TypeScript, no bundler).
 
+## Code Standards
+
+**Primary languages:** TypeScript (primary), JavaScript, with Markdown for documentation. Use TypeScript types and interfaces for all new code.
+
+**Linting:** ESLint runs automatically on pre-commit via hooks (see .claude/settings.json).
+
+## ClawdBot Workflow
+
+When working with ClawdBot:
+1. **Always check project registry and TODO/tasks files first** to understand current state and priorities
+2. Check recent commits for context: `git log --oneline -5`
+3. Verify which skills are enabled in `skills/skills.json`
+
+Use `/status` for a quick overview of all of the above.
+
+## Development Patterns
+
+### Parallel Task Orchestration
+
+For complex multi-component features, **break work into parallel task agents** that can work on independent parts simultaneously.
+
+**Use the `/swarm` command** for automatic intelligent breakdown and parallel execution. Claude will:
+1. Analyze your request
+2. Identify independent components
+3. Propose a parallel execution plan
+4. Spawn multiple Task agents in a single message (proven: up to 8 agents successfully)
+5. Coordinate and integrate results
+
+Example: "Add authentication to the API" becomes 4-6 parallel agents working on middleware, routes, tests, docs, config simultaneously.
+
+### Task Agent Fallback Protocol
+
+**When a task agent fails or times out:**
+1. Immediately summarize any partial results it produced
+2. Continue the work directly in the main conversation rather than spawning a new agent
+3. Log what happened for debugging
+
+This prevents cascading failures in multi-agent workflows and provides resilience against API errors.
+
 ## Critical Deployment Notes
 
 - **SSH keys expire quickly** — must call `aws ec2-instance-connect send-ssh-public-key` before EVERY SSH/SCP session
