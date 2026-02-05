@@ -304,16 +304,29 @@ app.get('/api/status', apiAuth, (req, res) => {
     });
 });
 
-// POST /api/message - Send a message (same as WhatsApp would)
+// POST /api/message - Send a message (full conversational pipeline, same as Telegram)
 app.post('/api/message', apiAuth, async (req, res) => {
     try {
-        const { message, userId } = req.body;
+        const { message, userId, chatId } = req.body;
 
         if (!message) {
             return res.status(400).json({ error: 'Message is required' });
         }
 
-        const effectiveUserId = userId || process.env.YOUR_WHATSAPP;
+        const effectiveUserId = userId || chatId || 'dashboard-coworker';
+        const platform = 'dashboard';
+
+        // Get auto-context from chat registry (use HQ context for dashboard)
+        let autoRepo = null;
+        let autoCompany = null;
+        try {
+            const chatRegistry = require('./lib/chat-registry');
+            const ctx = chatRegistry.getContext(effectiveUserId);
+            if (ctx) {
+                autoRepo = ctx.type === 'repo' ? ctx.value : null;
+                autoCompany = ctx.type === 'company' ? ctx.value : null;
+            }
+        } catch (e) { /* chat registry optional */ }
 
         // Save to memory
         if (memory) {
@@ -324,14 +337,21 @@ app.post('/api/message', apiAuth, async (req, res) => {
         let response = null;
         let handled = false;
 
-        // Preprocess with smart router
-        const processedMsg = await hooks.preprocess(message, { userId: effectiveUserId });
+        // Preprocess with smart router (with auto-context)
+        const processedMsg = await hooks.preprocess(message, {
+            userId: effectiveUserId,
+            autoRepo,
+            autoCompany,
+        });
 
-        // Try skills first
+        // Try skills first (with full context)
         if (skillRegistry) {
             const result = await skillRegistry.route(processedMsg, {
                 userId: effectiveUserId,
-                memory: memory
+                memory: memory,
+                autoRepo,
+                autoCompany,
+                platform,
             });
 
             if (result && result.handled) {
@@ -340,14 +360,36 @@ app.post('/api/message', apiAuth, async (req, res) => {
             }
         }
 
-        // Fallback to AI
+        // Fallback to AI — with full context engine (same as Telegram pipeline)
         if (!handled) {
-            response = await aiHandler.processQuery(message);
+            let richContext = null;
+            try {
+                const contextEngine = require('./lib/context-engine');
+                richContext = await contextEngine.build({
+                    chatId: effectiveUserId,
+                    userId: effectiveUserId,
+                    platform,
+                    message,
+                    autoRepo,
+                    autoCompany,
+                });
+            } catch (ctxErr) {
+                console.error('[API/message] Context engine build failed:', ctxErr.message);
+            }
+
+            response = await aiHandler.processQuery(message, {
+                userId: effectiveUserId,
+                platform,
+                autoRepo,
+                autoCompany,
+                richContext,
+            });
         }
 
-        // Save response
+        // Save response and extract facts
         if (memory) {
             memory.saveMessage(effectiveUserId, 'assistant', response);
+            extractAndSaveFacts(effectiveUserId, message);
         }
 
         res.json({

@@ -37,9 +37,9 @@ export const api = {
   getProjectStatus: (repo: string) => fetchAPI<ProjectStatusResponse>(`/api/project/${encodeURIComponent(repo)}/status`),
   getSkills: () => fetchAPI<SkillsResponse>('/api/skills'),
   getMemory: (limit = 50) => fetchAPI<MemoryResponse>(`/api/memory?limit=${limit}`),
-  sendMessage: (message: string) => fetchAPI<MessageResponse>('/api/message', {
+  sendMessage: (message: string, chatId = 'dashboard-coworker') => fetchAPI<MessageResponse>('/api/message', {
     method: 'POST',
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ message, chatId }),
   }),
   deployProject: (repo: string) => fetchAPI<DeployResponse>(`/api/project/${encodeURIComponent(repo)}/deploy`, {
     method: 'POST',
