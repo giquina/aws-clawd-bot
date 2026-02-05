@@ -585,6 +585,166 @@ app.get('/api/activity', apiAuth, (req, res) => {
 });
 
 // ================================================
+// LIVE AGENT VISIBILITY ENDPOINTS
+// ================================================
+
+// GET /api/live/state - Unified live state for dashboard
+app.get('/api/live/state', apiAuth, (req, res) => {
+    const activityLog = require('./lib/activity-log');
+    const taskQueue = require('./lib/task-queue');
+    const confirmationManager = require('./lib/confirmation-manager');
+    const database = require('./lib/database');
+
+    // Current task — most recent activity
+    const recentActivity = activityLog.getRecent(1);
+
+    // Agents — main bot always present, plus any running Claude Code sessions
+    const agents = [{
+        id: 'main',
+        name: 'ClawdBot',
+        type: 'main',
+        status: 'active',
+        uptime: process.uptime()
+    }];
+
+    for (const [taskId, running] of taskQueue.running) {
+        agents.push({
+            id: taskId,
+            name: 'Claude Code Session',
+            type: 'claude-code',
+            status: 'running',
+            startedAt: running.startTime,
+            pid: running.pid || null,
+            task: running.task?.params?.task || 'Unknown task'
+        });
+    }
+
+    // Task queue status
+    const queueStatus = taskQueue.getStatus();
+
+    // Pending confirmations
+    const pendingConfirmations = confirmationManager.getAllPending();
+
+    // Recent outcomes from SQLite
+    let recentOutcomes = [];
+    const db = database.getDb ? database.getDb() : null;
+    if (db) {
+        try {
+            recentOutcomes = db.prepare(
+                'SELECT * FROM outcomes ORDER BY created_at DESC LIMIT 10'
+            ).all();
+        } catch (e) { /* table may not exist yet */ }
+    }
+
+    // Recent deployments from SQLite
+    let recentDeployments = [];
+    if (db) {
+        try {
+            recentDeployments = db.prepare(
+                'SELECT * FROM deployments ORDER BY created_at DESC LIMIT 5'
+            ).all();
+        } catch (e) { /* table may not exist yet */ }
+    }
+
+    // Active conversation sessions
+    let activeSessions = [];
+    try {
+        const conversationSession = require('./lib/conversation-session');
+        if (conversationSession.getAllSessions) {
+            activeSessions = conversationSession.getAllSessions();
+        }
+    } catch (e) { /* module may not be loaded */ }
+
+    // Activity timeline (last 50)
+    const timeline = activityLog.getRecent(50);
+
+    res.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        currentTask: recentActivity[0] || null,
+        agents,
+        taskQueue: queueStatus,
+        pendingConfirmations,
+        recentOutcomes,
+        recentDeployments,
+        activeSessions,
+        timeline,
+        uptime: process.uptime(),
+        memoryUsage: {
+            heapMB: +(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1)
+        }
+    });
+});
+
+// GET /api/live/outcomes - Filterable outcome history
+app.get('/api/live/outcomes', apiAuth, (req, res) => {
+    const database = require('./lib/database');
+    const db = database.getDb ? database.getDb() : null;
+    if (!db) return res.json({ success: true, count: 0, outcomes: [] });
+
+    const limit = parseInt(req.query.limit) || 20;
+    const type = req.query.type || null;
+
+    let outcomes = [];
+    try {
+        if (type) {
+            outcomes = db.prepare(
+                'SELECT * FROM outcomes WHERE action_type = ? ORDER BY created_at DESC LIMIT ?'
+            ).all(type, limit);
+        } else {
+            outcomes = db.prepare(
+                'SELECT * FROM outcomes ORDER BY created_at DESC LIMIT ?'
+            ).all(limit);
+        }
+    } catch (e) { /* table may not exist yet */ }
+
+    res.json({ success: true, count: outcomes.length, outcomes });
+});
+
+// GET /api/live/sessions - Claude Code session history
+app.get('/api/live/sessions', apiAuth, (req, res) => {
+    const database = require('./lib/database');
+    const db = database.getDb ? database.getDb() : null;
+    if (!db) return res.json({ success: true, count: 0, sessions: [] });
+
+    const limit = parseInt(req.query.limit) || 10;
+
+    let sessions = [];
+    try {
+        sessions = db.prepare(
+            'SELECT * FROM claude_code_sessions ORDER BY created_at DESC LIMIT ?'
+        ).all(limit);
+    } catch (e) { /* table may not exist yet */ }
+
+    res.json({ success: true, count: sessions.length, sessions });
+});
+
+// GET /api/live/deployments - Deployment history
+app.get('/api/live/deployments', apiAuth, (req, res) => {
+    const database = require('./lib/database');
+    const db = database.getDb ? database.getDb() : null;
+    if (!db) return res.json({ success: true, count: 0, deployments: [] });
+
+    const limit = parseInt(req.query.limit) || 10;
+    const repo = req.query.repo || null;
+
+    let deployments = [];
+    try {
+        if (repo) {
+            deployments = db.prepare(
+                'SELECT * FROM deployments WHERE repo = ? ORDER BY created_at DESC LIMIT ?'
+            ).all(repo, limit);
+        } else {
+            deployments = db.prepare(
+                'SELECT * FROM deployments ORDER BY created_at DESC LIMIT ?'
+            ).all(limit);
+        }
+    } catch (e) { /* table may not exist yet */ }
+
+    res.json({ success: true, count: deployments.length, deployments });
+});
+
+// ================================================
 // END API ENDPOINTS
 // ================================================
 

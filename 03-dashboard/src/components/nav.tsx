@@ -16,11 +16,13 @@ import {
   Menu,
   X,
   FileText,
-  Activity
+  Activity,
+  Radio
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Live', href: '/live', icon: Radio },
   { name: 'Projects', href: '/projects', icon: FolderGit2 },
   { name: 'Skills', href: '/skills', icon: Sparkles },
   { name: 'Memory', href: '/memory', icon: MessageSquare },

@@ -530,6 +530,32 @@ function stopCleanup() {
 startCleanup();
 
 // ---------------------------------------------------------------------------
+// Dashboard visibility
+// ---------------------------------------------------------------------------
+
+/**
+ * Get all active (non-expired) sessions for dashboard visibility
+ * @returns {Array} Array of session summaries
+ */
+function getAllSessions() {
+  const result = [];
+  const now = Date.now();
+  for (const [chatId, session] of sessions.entries()) {
+    if (now - session.lastActivityAt <= SESSION_TTL) {
+      result.push({
+        chatId: session.chatId,
+        mode: session.mode,
+        projectName: session.projectName,
+        repo: session.repo,
+        lastActivityAt: session.lastActivityAt,
+        startedAt: session.startedAt,
+      });
+    }
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -545,6 +571,7 @@ module.exports = {
   buildSessionContext,
   checkResume,
   extractAndSaveDecisions,
+  getAllSessions,
   cleanupExpired,
   startCleanup,
   stopCleanup,

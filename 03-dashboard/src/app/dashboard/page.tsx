@@ -7,7 +7,8 @@ import { api, type StatusResponse } from '@/lib/api';
 import { formatUptime } from '@/lib/utils';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { AutoRefreshIndicator, RefreshPulse } from '@/components/auto-refresh-indicator';
-import { Activity, Clock, Zap, CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { Activity, Clock, Zap, CheckCircle, XCircle, AlertCircle, RefreshCw, Radio } from 'lucide-react';
+import Link from 'next/link';
 
 const REFRESH_INTERVAL_MS = 30000; // 30 seconds
 const STORAGE_KEY = 'clawdbot-dashboard-auto-refresh';
@@ -245,6 +246,26 @@ export default function DashboardPage() {
           enabled={true}
         />
       </div>
+
+      {/* View Live Link */}
+      <Card className="border-primary-200 dark:border-primary-800 hover:shadow-md transition-shadow cursor-pointer">
+        <Link href="/live">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
+                  <Radio className="h-5 w-5 text-red-600 dark:text-red-400 animate-pulse" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">Live Agent View</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Watch ClawdBot work in real-time</p>
+                </div>
+              </div>
+              <span className="text-primary-600 dark:text-primary-400 text-sm font-medium">View Live →</span>
+            </div>
+          </CardContent>
+        </Link>
+      </Card>
     </div>
   );
 }

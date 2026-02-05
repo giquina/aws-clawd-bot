@@ -4,6 +4,7 @@ import './globals.css';
 import { Nav } from '@/components/nav';
 import { PageWrapper } from '@/components/page-wrapper';
 import { ToastProvider } from '@/components/ui/toast';
+import { CoworkerPanel } from '@/components/coworker-panel';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -45,6 +46,7 @@ export default function RootLayout({
             <PageWrapper>
               {children}
             </PageWrapper>
+            <CoworkerPanel />
           </div>
         </ToastProvider>
       </body>
