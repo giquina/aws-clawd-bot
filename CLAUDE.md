@@ -217,7 +217,7 @@ Both use better-sqlite3 with WAL mode. The memory-manager is the primary convers
 |----------|-------|------|----------|
 | Groq | LLaMA 3.3 70B | **FREE** | Simple queries, greetings |
 | Groq | Whisper | **FREE** | Voice transcription (forced English) |
-| Claude | Opus 4.5 | $$$ | Planning, strategy (THE BRAIN) |
+| Claude | Opus 4.6 | $$$ | Planning, strategy (THE BRAIN) - NEW: 1M context, adaptive thinking |
 | Claude | Sonnet 4 | $$ | Coding, implementation (THE CODER) |
 | Grok | grok-3-fast | $ | Social/X/Twitter searches |
 | Perplexity | sonar | $$ | Deep research with citations |

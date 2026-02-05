@@ -128,7 +128,7 @@ meeting view 3
 - **Quality**: High-quality transcription with punctuation
 
 ### AI Analysis
-- **Model**: Claude Opus 4.5 (THE BRAIN)
+- **Model**: Claude Opus 4.6 (THE BRAIN)
 - **Summary Prompt**: "Analyze this meeting transcript and provide a concise summary in 3-5 bullet points"
 - **Action Items Prompt**: "Extract all action items with what, who, and when"
 

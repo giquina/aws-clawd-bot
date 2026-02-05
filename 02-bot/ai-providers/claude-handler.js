@@ -2,7 +2,11 @@
  * Claude Handler - Premium AI Provider
  *
  * Multi-tier Claude strategy:
- * - Opus 4.5 (THE BRAIN) = Planning, strategy, architecture decisions, complex reasoning
+ * - Opus 4.6 (THE BRAIN) = Planning, strategy, architecture, complex reasoning
+ *   • NEW: 1M token context window (beta)
+ *   • NEW: Adaptive thinking with effort controls (low/medium/high/max)
+ *   • NEW: 128k output tokens
+ *   • Improved coding, agentic tasks, code review
  * - Sonnet 4 (THE CODER) = Code writing, analysis, debugging, implementation
  * - Haiku (QUICK) = Fast responses for simple Claude tasks
  *
@@ -19,7 +23,7 @@ class ClaudeHandler {
         // Models available - tiered by capability and cost
         this.models = {
             // THE BRAIN - for planning, strategy, architecture
-            opus: 'claude-opus-4-20250514',        // Most powerful, highest cost
+            opus: 'claude-opus-4-6',              // NEW: Opus 4.6 with 1M context, improved coding
             // THE CODER - for implementation, code review
             sonnet: 'claude-sonnet-4-20250514',   // Great for coding
             // QUICK - for fast simple responses
@@ -32,9 +36,17 @@ class ClaudeHandler {
 
         // Cost tracking (per 1M tokens)
         this.costs = {
-            'claude-opus-4-20250514': { input: 15.00, output: 75.00 },    // Most expensive
+            'claude-opus-4-6': { input: 5.00, output: 25.00 },            // Opus 4.6 pricing
             'claude-sonnet-4-20250514': { input: 3.00, output: 15.00 },   // Mid-tier
             'claude-3-haiku-20240307': { input: 0.25, output: 1.25 }      // Cheapest
+        };
+
+        // Effort controls for Opus 4.6 (adaptive thinking)
+        this.effortLevels = {
+            low: 'low',       // Less thinking, faster responses
+            medium: 'medium', // Balanced thinking
+            high: 'high',     // Default - adaptive thinking
+            max: 'max'        // Maximum reasoning for hardest tasks
         };
 
         // Task type to model mapping
@@ -88,8 +100,10 @@ class ClaudeHandler {
             history = [],
             model = null, // Will be auto-selected if not provided
             taskType = null, // planning, coding, quick, etc.
-            maxTokens = 1024,
-            skillDocs = ''
+            maxTokens = 4096, // Increased default (Opus 4.6 supports up to 128k)
+            skillDocs = '',
+            effort = 'high', // NEW: Opus 4.6 effort level (low, medium, high, max)
+            thinking = 'adaptive' // NEW: adaptive thinking (true/false/'adaptive')
         } = context;
 
         // Auto-select model based on task type if not explicitly provided
@@ -117,12 +131,30 @@ class ClaudeHandler {
         messages.push({ role: 'user', content: query });
 
         try {
-            const response = await this.client.messages.create({
+            // Build API request params
+            const apiParams = {
                 model: selectedModel,
                 max_tokens: maxTokens,
                 system: fullSystemPrompt,
                 messages: messages
-            });
+            };
+
+            // Add Opus 4.6 specific features
+            if (selectedModel === 'claude-opus-4-6') {
+                // Effort control (low, medium, high, max)
+                if (effort && this.effortLevels[effort]) {
+                    apiParams.metadata = { ...apiParams.metadata, effort: this.effortLevels[effort] };
+                }
+
+                // Adaptive thinking (new in 4.6)
+                if (thinking === 'adaptive') {
+                    apiParams.thinking = { type: 'enabled', budget_tokens: 10000 }; // Default budget
+                } else if (thinking === true) {
+                    apiParams.thinking = { type: 'enabled', budget_tokens: 10000 };
+                }
+            }
+
+            const response = await this.client.messages.create(apiParams);
 
             const responseText = response.content[0]?.text?.trim() || '';
             const inputTokens = response.usage?.input_tokens || 0;
@@ -146,7 +178,8 @@ class ClaudeHandler {
                 model: selectedModel,
                 tier: tier,
                 provider: 'claude',
-                cost: cost
+                cost: cost,
+                effort: selectedModel === 'claude-opus-4-6' ? effort : undefined
             };
         } catch (error) {
             console.error('[Claude] API error:', error.message);
