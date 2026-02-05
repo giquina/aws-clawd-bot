@@ -9,12 +9,36 @@
  * - Coding/Implementation → Claude Sonnet (THE CODER)
  *
  * Includes spelling tolerance for typos and misspellings.
+ * Includes caching for AI responses to reduce API calls and costs.
+ * Cache configured via environment variables:
+ * - CACHE_ENABLED (default: true)
+ * - CACHE_TTL_SECONDS (default: 300)
+ * - CACHE_MAX_SIZE (default: 100)
  */
+
+const { CacheManager, hashObject } = require('../lib/cache-manager');
+const cacheConfig = require('../lib/cache-config');
 
 class Router {
     constructor(providers, stats) {
         this.providers = providers;
         this.stats = stats;
+
+        // Initialize cache for AI responses with environment-based configuration
+        // Environment variables override defaults:
+        // - CACHE_ENABLED: Enable/disable caching (default: true)
+        // - CACHE_TTL_SECONDS: TTL in seconds (default: 300 = 5 minutes)
+        // - CACHE_MAX_SIZE: Max cache entries (default: 100)
+        const cacheOptions = cacheConfig.createCacheOptions();
+        this.cache = new CacheManager(cacheOptions);
+        this.cacheEnabled = this._isCacheEnabled();
+
+        if (this.cacheEnabled) {
+            const summary = cacheConfig.getCacheConfigSummary();
+            console.log('🔄 AI Response Cache initialized' + summary);
+        } else {
+            console.log('⏭️  AI Response Cache is disabled');
+        }
 
         // User preferences storage (in-memory, keyed by userId)
         this.userPreferences = new Map();
@@ -197,9 +221,80 @@ class Router {
     }
 
     /**
+     * Generate cache key for AI query
+     * @param {string} provider - Provider name
+     * @param {string} query - User query
+     * @param {string} taskType - Task type (optional)
+     * @returns {string} Cache key
+     */
+    generateCacheKey(provider, query, taskType = '') {
+        // Use first 200 chars of query + provider + taskType
+        const queryPrefix = query.substring(0, 200).toLowerCase().trim();
+        return hashObject({ provider, query: queryPrefix, taskType });
+    }
+
+    /**
+     * Check if query should bypass cache (real-time queries)
+     * @param {string} query - User query
+     * @returns {boolean} True if should bypass cache
+     */
+    shouldBypassCache(query) {
+        const lowerQuery = query.toLowerCase();
+
+        // Real-time query patterns that should not be cached
+        const realTimeKeywords = [
+            'now', 'current', 'today', 'latest', 'right now',
+            'trending', 'live', 'recent', 'just happened',
+            'breaking', 'update', 'status', 'health'
+        ];
+
+        // Check for time-sensitive queries
+        for (const keyword of realTimeKeywords) {
+            if (lowerQuery.includes(keyword)) {
+                return true;
+            }
+        }
+
+        // Check for commands (status, health checks, etc.)
+        if (/^(status|health|ping|check)\b/i.test(query)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * Execute query with a specific provider
      */
     async executeWithProvider(provider, query, context, correctedQuery) {
+        const taskType = context.taskType || '';
+        const bypassCache = this.shouldBypassCache(query) || !this.cacheEnabled;
+
+        // Generate cache key
+        const cacheKey = this.generateCacheKey(provider, query, taskType);
+
+        // Check cache first (unless caching disabled or bypassing)
+        if (!bypassCache && this.cacheEnabled) {
+            const cachedResult = this.cache.get(cacheKey);
+            if (cachedResult) {
+                console.log(`[Router] Cache HIT for ${provider}/${taskType}`);
+
+                // Update cache hit stats
+                if (!this.stats[provider].cacheHits) {
+                    this.stats[provider].cacheHits = 0;
+                }
+                this.stats[provider].cacheHits++;
+
+                return {
+                    ...cachedResult,
+                    cached: true,
+                    correctedQuery: correctedQuery
+                };
+            }
+        } else if (this.shouldBypassCache(query)) {
+            console.log(`[Router] Bypassing cache for real-time query`);
+        }
+
         try {
             const result = await this.providers[provider].complete(query, context);
 
@@ -221,7 +316,7 @@ class Router {
                 }
             }
 
-            return {
+            const responseData = {
                 response: result.response,
                 provider: provider,
                 model: result.model,
@@ -230,6 +325,14 @@ class Router {
                 cost: result.cost || 0,
                 correctedQuery: correctedQuery
             };
+
+            // Cache the result (unless bypassing or caching disabled)
+            if (!bypassCache && this.cacheEnabled) {
+                this.cache.set(cacheKey, responseData);
+                console.log(`[Router] Cached response for ${provider}/${taskType}`);
+            }
+
+            return responseData;
         } catch (error) {
             this.stats[provider].errors++;
 
@@ -434,6 +537,17 @@ class Router {
     }
 
     /**
+     * Check if cache is enabled via environment configuration
+     * @private
+     * @returns {boolean} True if cache is enabled
+     */
+    _isCacheEnabled() {
+        // Check CACHE_ENABLED env var (default: true)
+        const enabledStr = (process.env.CACHE_ENABLED || 'true').toLowerCase();
+        return enabledStr === 'true' || enabledStr === '1' || enabledStr === 'yes';
+    }
+
+    /**
      * Get routing explanation for a query (for debugging)
      */
     explainRouting(query) {
@@ -481,6 +595,77 @@ class Router {
             return 'Simple greeting/acknowledgment → Groq (FREE)';
         }
         return 'Short/simple query → Groq (FREE)';
+    }
+
+    /**
+     * Get cache statistics
+     * @returns {Object} Cache stats including hit rate
+     */
+    getCacheStats() {
+        return this.cache.getStats();
+    }
+
+    /**
+     * Clear the cache
+     * @returns {number} Number of entries cleared
+     */
+    clearCache() {
+        return this.cache.clear();
+    }
+
+    /**
+     * Invalidate a specific cache entry
+     * @param {string} provider - Provider name
+     * @param {string} query - Query to invalidate
+     * @param {string} taskType - Task type (optional)
+     * @returns {boolean} True if entry existed
+     */
+    invalidateCacheEntry(provider, query, taskType = '') {
+        const cacheKey = this.generateCacheKey(provider, query, taskType);
+        return this.cache.invalidate(cacheKey);
+    }
+
+    /**
+     * Get combined router stats including cache performance
+     * @returns {Object} Combined statistics
+     */
+    getExtendedStats() {
+        const cacheStats = this.getCacheStats();
+
+        return {
+            providers: this.stats,
+            cache: cacheStats,
+            summary: {
+                totalCalls: Object.values(this.stats).reduce((sum, p) => sum + (p.calls || 0), 0),
+                totalErrors: Object.values(this.stats).reduce((sum, p) => sum + (p.errors || 0), 0),
+                totalCacheHits: Object.values(this.stats).reduce((sum, p) => sum + (p.cacheHits || 0), 0),
+                cacheHitRate: cacheStats.hitRate,
+                estimatedCostSavings: this.calculateCostSavings()
+            }
+        };
+    }
+
+    /**
+     * Calculate estimated cost savings from cache hits
+     * @returns {number} Estimated cost savings in USD
+     */
+    calculateCostSavings() {
+        // Rough estimates per provider call
+        const avgCosts = {
+            claude: 0.015,  // Avg between Opus and Sonnet
+            groq: 0,        // FREE
+            grok: 0.005,
+            perplexity: 0.01
+        };
+
+        let savings = 0;
+        for (const [provider, stats] of Object.entries(this.stats)) {
+            const cacheHits = stats.cacheHits || 0;
+            const avgCost = avgCosts[provider] || 0;
+            savings += cacheHits * avgCost;
+        }
+
+        return savings;
     }
 }
 
