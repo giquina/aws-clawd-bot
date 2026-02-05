@@ -16,6 +16,7 @@ cd 02-bot && npm install
 npm run dev                    # Development with nodemon auto-reload
 npm start                      # Production mode
 npm test                       # Run test suite (scripts/test-bot.js)
+npm run setup                  # Interactive configuration wizard
 curl localhost:3000/health     # Health check
 
 # Deploy to AWS EC2 (preferred — pushes SSH key automatically)
@@ -51,7 +52,7 @@ Note: There are no `lint` or `build` scripts — this is a plain Node.js project
 ## Architecture
 
 ```
-Telegram/WhatsApp → Express (index.js) → Hooks → Skills Router (37 skills)
+Telegram/WhatsApp → Express (index.js) → Hooks → Skills Router (49 skills)
                                            ↓
                     ┌──────────────────────┼──────────────────────┐
                     ↓                      ↓                      ↓
@@ -282,7 +283,7 @@ ENCRYPTION_KEY=...              # AES-256 key for secrets (generate with: openss
 REPLICATE_API_TOKEN=...         # Replicate API for image generation (~$0.02 per image)
 ```
 
-## Skill Categories (49 enabled skills)
+## Skill Categories (49+ enabled skills)
 
 | Category | Skills |
 |----------|--------|
@@ -296,11 +297,11 @@ REPLICATE_API_TOKEN=...         # Replicate API for image generation (~$0.02 per
 | **Browser** | browser (browse, screenshot, search, extract) |
 | **Scheduling** | morning-brief, digest, overnight |
 | **Research** | research, vercel |
-| **Utilities** | weather, news, currency, timezone, quickmath |
+| **Utilities** | weather, news, currency, timezone, quickmath, pomodoro |
 | **Chat/Platform** | chat-management, hq-commands |
 | **Config** | ai-settings, autonomous-config, audit |
 
-Note: `skills/alerts/` directory exists but is NOT enabled in `skills.json`.
+Note: `skills/alerts/` directory exists but is NOT enabled in `skills.json`. The exact skill count may vary as skills are added/removed - check `skills/skills.json` for the authoritative enabled list.
 
 ### Claude Code Session Skill
 
