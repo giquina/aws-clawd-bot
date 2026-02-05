@@ -78,6 +78,44 @@ Example: "Add authentication to the API" becomes 4-6 parallel agents working on 
 
 This prevents cascading failures in multi-agent workflows and provides resilience against API errors.
 
+### Voice-Activated Swarm Intelligence
+
+**Telegram voice notes automatically detect and use parallel agents when needed.**
+
+When you send a voice command via Telegram that requires complex/multi-component work, ClawdBot **automatically**:
+
+1. **Transcribes** your voice note (Groq Whisper - FREE)
+2. **Analyzes complexity** using swarm detector (checks for keywords, multiple components, length)
+3. **Activates parallel mode** if confidence ≥ 60%
+4. **Proposes breakdown** into parallel agents (up to 8)
+5. **Executes** after your confirmation
+
+**Detection triggers:**
+- Implementation keywords: "add", "create", "implement", "build"
+- Multiple components: "frontend and backend", "with tests and docs"
+- Complexity: >15 words with coding keywords
+- Multi-concern: mentions of tests + docs + config together
+
+**Example:**
+```
+You (voice): "Add rate limiting to the ClawdBot API with configuration and tests"
+Bot: 🔀 Detected multi-component task. I'll use 4 parallel agents:
+     - Agent 1: Rate limiter middleware
+     - Agent 2: Configuration (env vars + JSON)
+     - Agent 3: Unit tests
+     - Agent 4: Documentation
+     Proceed? yes/no
+You: "yes"
+Bot: [Spawns all 4 agents simultaneously, integrates, reports completion]
+```
+
+**Implementation:**
+- `lib/swarm-detector.js` - Complexity analysis and component detection
+- `lib/voice-swarm-integration.js` - Voice-to-swarm integration layer
+- `index.js` line ~1475 - Integration point in voice processing pipeline
+
+**Manual override:** Use `/swarm` command directly from Claude Code for non-voice usage.
+
 ## Critical Deployment Notes
 
 - **SSH keys expire quickly** — must call `aws ec2-instance-connect send-ssh-public-key` before EVERY SSH/SCP session

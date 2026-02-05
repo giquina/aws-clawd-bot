@@ -1475,15 +1475,30 @@ async function processMessageForTelegram(incomingMsg, context) {
                                 ? `\n\nPROJECT CONTEXT: This chat is dedicated to the "${autoRepo}" project. The user is talking about THIS project. Use "${autoRepo}" as the target repo for all operations.\n`
                                 : '';
 
-                            const planResponse = await aiHandler.processQuery(
-                                `You're a helpful assistant. The user sent a voice note with instructions.${projectHint}\n\n` +
+                            // SWARM INTELLIGENCE: Auto-detect if task should use parallel agents
+                            let voicePrompt = `You're a helpful assistant. The user sent a voice note with instructions.${projectHint}\n\n` +
                                 `VOICE INSTRUCTION: "${transcript}"\n\n` +
                                 `Respond naturally:\n` +
                                 `1. Briefly confirm what you understood\n` +
                                 `2. List the specific tasks you'll do (mention the project name: ${autoRepo || 'unknown'})\n` +
                                 `3. If anything is unclear, ask a question\n` +
                                 `4. If everything is clear, ask if they'd like you to proceed\n\n` +
-                                `Be conversational and friendly. Don't use rigid formatting. Talk like a helpful colleague.`,
+                                `Be conversational and friendly. Don't use rigid formatting. Talk like a helpful colleague.`;
+
+                            try {
+                                const { voiceSwarmIntegration } = require('./lib/voice-swarm-integration');
+                                const swarmResult = await voiceSwarmIntegration.processVoiceCommand(transcript, { autoRepo });
+
+                                if (swarmResult.useSwarm) {
+                                    console.log(`[VoiceSwarm] 🔀 Parallel agent mode activated! Confidence: ${(swarmResult.detection.confidence * 100).toFixed(0)}%`);
+                                    voicePrompt = swarmResult.enhancedPrompt + projectHint;
+                                }
+                            } catch (e) {
+                                console.log('[VoiceSwarm] Integration not available, using standard prompt:', e.message);
+                            }
+
+                            const planResponse = await aiHandler.processQuery(
+                                voicePrompt,
                                 { userId, taskType: 'planning', richContext: voicePlanRichCtx }
                             );
 
