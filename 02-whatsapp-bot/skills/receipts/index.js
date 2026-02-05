@@ -256,10 +256,19 @@ class ReceiptsSkill extends BaseSkill {
 
   /**
    * Check if this skill can handle the command
-   * Override to also check for image messages
+   * Override to also check for image messages and pending receipts
    */
   canHandle(command, context = {}) {
-    // Check text commands first
+    const lowerCommand = (command || '').toLowerCase().trim();
+
+    // For confirm/yes/reject/no/cancel, only handle if user has a pending receipt
+    // This prevents stealing "yes" from other skills (like action-control)
+    if (/^(confirm|yes|reject|no|cancel)$/i.test(lowerCommand)) {
+      const userId = context.userId || context.fromNumber;
+      return userId && this.pendingReceipts.has(userId);
+    }
+
+    // Check other text commands
     if (super.canHandle(command)) {
       return true;
     }
