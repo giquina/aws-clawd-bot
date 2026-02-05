@@ -1,4 +1,4 @@
-const BASE_URL = process.env.NEXT_PUBLIC_CLAWDBOT_URL || 'http://16.171.150.151:3000';
+const BASE_URL = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_CLAWDBOT_URL || 'http://16.171.150.151:3000');
 
 export function getApiKey(): string {
   if (typeof window === 'undefined') return '';
