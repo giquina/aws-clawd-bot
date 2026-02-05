@@ -13,6 +13,7 @@
 const { Octokit } = require('@octokit/rest');
 const Anthropic = require('@anthropic-ai/sdk');
 const projectManager = require('./project-manager');
+const statusMessenger = require('./status-messenger');
 
 class PlanExecutor {
   constructor() {
@@ -40,6 +41,24 @@ class PlanExecutor {
   async execute({ transcript, plan, userId, sendProgress }) {
     const progress = sendProgress || (() => {});
 
+    // Define progress tasks for tracking
+    const progressTasks = [
+      { description: 'Analyze plan', status: 'pending' },
+      { description: 'Read project files', status: 'pending' },
+      { description: 'Generate code', status: 'pending' },
+      { description: 'Create branch', status: 'pending' },
+      { description: 'Commit changes', status: 'pending' },
+      { description: 'Create PR', status: 'pending' }
+    ];
+
+    // Helper to update task status and send progress
+    const updateTask = async (taskIndex, status) => {
+      if (taskIndex >= 0 && taskIndex < progressTasks.length) {
+        progressTasks[taskIndex].status = status;
+        await progress(statusMessenger.progressUpdate(progressTasks));
+      }
+    };
+
     try {
       this.initClaude();
       if (!this.claude) {
@@ -47,6 +66,7 @@ class PlanExecutor {
       }
 
       // Step 1: Ask Claude to break the plan into structured file operations
+      await updateTask(0, 'current');
       await progress('Analyzing plan and determining file operations...');
 
       const operations = await this.planToOperations(transcript, plan);
@@ -55,8 +75,10 @@ class PlanExecutor {
       }
 
       await progress(`Target: ${operations.repo} | ${operations.operations.length} file operation(s)`);
+      await updateTask(0, 'done');
 
       // Step 2: Read any reference files needed
+      await updateTask(1, 'current');
       const referenceContent = {};
       for (const op of operations.operations) {
         if (op.action === 'read') {
@@ -85,13 +107,16 @@ class PlanExecutor {
       } catch (e) {
         console.log(`[PlanExecutor] Could not list ${targetRepo} files: ${e.message}`);
       }
+      await updateTask(1, 'done');
 
       // Step 4: Generate code for each write operation
+      await updateTask(2, 'current');
       const fileChanges = [];
       const writeOps = operations.operations.filter(op => op.action === 'create' || op.action === 'edit');
 
-      for (const op of writeOps) {
-        await progress(`Generating code: ${op.path}...`);
+      for (let i = 0; i < writeOps.length; i++) {
+        const op = writeOps[i];
+        await progress(`Generating code: ${op.path} (${i + 1}/${writeOps.length})...`);
 
         let existingContent = null;
         let fileSha = null;
@@ -168,8 +193,10 @@ Return ONLY the complete file content, no explanations or markdown fences.`;
       if (fileChanges.length === 0) {
         return { success: false, message: 'No file changes to make.' };
       }
+      await updateTask(2, 'done');
 
       // Step 5: Create branch
+      await updateTask(3, 'current');
       const branchName = `clawd-${targetRepo}-${Date.now()}`;
       await progress(`Creating branch: ${branchName}...`);
 
@@ -191,10 +218,13 @@ Return ONLY the complete file content, no explanations or markdown fences.`;
         ref: `refs/heads/${branchName}`,
         sha: ref.data.object.sha
       });
+      await updateTask(3, 'done');
 
       // Step 6: Commit each file
-      for (const change of fileChanges) {
-        await progress(`Committing: ${change.path}...`);
+      await updateTask(4, 'current');
+      for (let i = 0; i < fileChanges.length; i++) {
+        const change = fileChanges[i];
+        await progress(`Committing: ${change.path} (${i + 1}/${fileChanges.length})...`);
 
         const commitData = {
           owner: this.username,
@@ -211,8 +241,10 @@ Return ONLY the complete file content, no explanations or markdown fences.`;
 
         await this.octokit.repos.createOrUpdateFileContents(commitData);
       }
+      await updateTask(4, 'done');
 
       // Step 7: Create PR
+      await updateTask(5, 'current');
       await progress('Creating pull request...');
 
       const prBody = `## Voice Instruction\n> ${transcript}\n\n## Changes\n${fileChanges.map(f => `- ${f.action}: \`${f.path}\``).join('\n')}\n\n_Created via Telegram voice instruction by ClawdBot_`;
@@ -225,6 +257,10 @@ Return ONLY the complete file content, no explanations or markdown fences.`;
         head: branchName,
         base: defaultBranch
       });
+      await updateTask(5, 'done');
+
+      // Send final completion message with all tasks done
+      await progress(statusMessenger.progressUpdate(progressTasks));
 
       const resultMsg = `✅ *Done!*\n\n` +
         `*PR #${pr.data.number}* created in ${targetRepo}\n` +

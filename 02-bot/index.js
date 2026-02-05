@@ -47,6 +47,7 @@ const MessagingPlatform = require('./lib/messaging-platform');
 const chatRegistry = require('./lib/chat-registry');
 const activeProject = require('./lib/active-project');
 const ActionButtons = require('./lib/action-buttons');
+const statusMessenger = require('./lib/status-messenger');
 
 // Get Telegram handler singleton
 const telegramHandler = getTelegramHandler();
@@ -1684,6 +1685,11 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
                 // User confirmed - execute the pending action
                 const pending = confirmationManager.confirm(userId);
 
+                // Send WORKING status message before execution
+                const actionDescription = pending?.action || 'task';
+                const workingMessage = statusMessenger.formatStatusMessage('WORKING', `Starting: ${actionDescription}`);
+                await MessagingPlatform.sendToRecipient(workingMessage, platform, fromNumber);
+
                 // Handle voice_action confirmations through VoiceFlow
                 if (pending && pending.action === 'voice_action' && pending.params?.actionId) {
                     try {
@@ -1691,14 +1697,17 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
                         const execResult = await voiceFlow.executeAction(pending.params.actionId);
 
                         const responseText = execResult.success
-                            ? `*Done!*\n\n${execResult.message}${execResult.undoAvailable ? '\n\nSay "undo" to reverse.' : ''}`
-                            : `*Failed:* ${execResult.message}`;
+                            ? statusMessenger.complete(execResult.message, {
+                                nextSteps: execResult.undoAvailable ? 'Say "undo" to reverse.' : undefined
+                            })
+                            : statusMessenger.failed(execResult.message);
 
                         await MessagingPlatform.sendToRecipient(responseText, platform, fromNumber);
                         return;
                     } catch (err) {
                         console.error('[VoiceFlow] Confirmation execution failed:', err.message);
-                        await MessagingPlatform.sendToRecipient(`*Error:* ${err.message}`, platform, fromNumber);
+                        const errorMessage = statusMessenger.failed(err.message, 'Try again or contact support if this persists');
+                        await MessagingPlatform.sendToRecipient(errorMessage, platform, fromNumber);
                         return;
                     }
                 }
@@ -1720,14 +1729,15 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
                             });
 
                             const responseText = genResult.success
-                                ? genResult.message
-                                : `❌ ${genResult.message}`;
+                                ? statusMessenger.complete(genResult.message)
+                                : statusMessenger.failed(genResult.message);
 
                             await MessagingPlatform.sendToRecipient(responseText, platform, fromNumber);
                             return;
                         } catch (err) {
                             console.error('[ImageGen] Confirmation execution failed:', err.message);
-                            await MessagingPlatform.sendToRecipient(`*Error:* ${err.message}`, platform, fromNumber);
+                            const errorMessage = statusMessenger.failed(err.message, 'Try again or contact support if this persists');
+                            await MessagingPlatform.sendToRecipient(errorMessage, platform, fromNumber);
                             return;
                         }
                     }
@@ -1739,8 +1749,8 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
                     const execResult = await actionExecutor.execute(pending.action, pending.params, pending.context);
 
                     const responseText = execResult.success
-                        ? `*Done!*\n\n${execResult.message}`
-                        : `*Failed:* ${execResult.error || execResult.message}`;
+                        ? statusMessenger.complete(execResult.message)
+                        : statusMessenger.failed(execResult.error || execResult.message);
 
                     await MessagingPlatform.sendToRecipient(responseText, platform, fromNumber);
                     return;
@@ -1759,8 +1769,22 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
                 confirmationManager.cancel(userId);
                 await MessagingPlatform.sendToRecipient('*Cancelled.* Let me know if you need anything else.', platform, fromNumber);
                 return;
+            } else {
+                // User sent a message but didn't say yes/no - send reminder
+                const pending = confirmationManager.getPending(userId);
+                if (pending) {
+                    const reminderMessage = statusMessenger.formatStatusMessage(
+                        'APPROVAL_NEEDED',
+                        `You have a pending action: **${pending.action}**`,
+                        {
+                            footer: 'Reply with "yes" to proceed or "no" to cancel.'
+                        }
+                    );
+                    await MessagingPlatform.sendToRecipient(reminderMessage, platform, fromNumber);
+                    return;
+                }
             }
-            // If not a clear yes/no, continue processing normally
+            // If not a clear yes/no, continue processing normally (no pending action found)
         }
 
         // Check for new conversation (send greeting)
@@ -1802,6 +1826,18 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
                     fromNumber
                 });
 
+                // Send status messages if available
+                if (result.statusMessage) {
+                    // Send transcription status
+                    if (result.statusMessage.message) {
+                        await telegramHandler.sendMessage(chatId, result.statusMessage.message).catch(() => {});
+                    }
+                    // Send intent classification status
+                    if (result.statusMessage.intentMessage) {
+                        await telegramHandler.sendMessage(chatId, result.statusMessage.intentMessage).catch(() => {});
+                    }
+                }
+
                 // Handle different stages
                 switch (result.stage) {
                     case 'auto_execute':
@@ -1820,6 +1856,12 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
                     case 'confirm':
                         // Needs confirmation - store pending action
                         if (confirmationManager && result.actionId) {
+                            // Send approval request status
+                            await telegramHandler.sendMessage(chatId, statusMessenger.formatStatusMessage(
+                                'APPROVAL_NEEDED',
+                                'Requesting approval...'
+                            )).catch(() => {});
+
                             confirmationManager.setPending(userId, 'voice_action', {
                                 actionId: result.actionId,
                                 transcription: result.transcription,

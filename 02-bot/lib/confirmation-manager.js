@@ -280,37 +280,46 @@ function formatConfirmationRequest(action, params = {}) {
   const normalizedAction = (action || '').toLowerCase();
   const target = params.target || params.repo || params.project || params.name || '';
 
+  // Header - visual alert
+  const header = '⚠️ **APPROVAL NEEDED**\n\n';
+
+  // Footer - clear instructions with timeout warning
+  const footer = '\n\n**Reply "yes" to proceed or "no" to cancel**\n⏱️ Expires in 5 minutes';
+
   // Action-specific messages
   const messageTemplates = {
-    'deploy': `Are you sure you want to deploy ${target || 'this project'}? This will update the live server.`,
-    'deploy-project': `Are you sure you want to deploy ${target || 'this project'}? This will update the live server.`,
-    'git pull': `Confirm git pull for ${target || 'this project'}? This will fetch and merge remote changes.`,
-    'pm2 restart': `Restart ${target || 'the application'}? This may cause brief downtime.`,
-    'pm2 stop': `Stop ${target || 'the application'}? The service will be unavailable until started.`,
-    'create-page': `Create new page "${params.pageName || target}"? This will add files to the project.`,
-    'create-feature': `Create new feature "${params.featureName || target}"? This will scaffold new files.`,
-    'create-repo': `Create new repository "${target}"? This will create a new GitHub repo.`,
-    'file-taxes': `File taxes for ${params.company || target}? This is a formal submission.`,
-    'submit-filing': `Submit filing for ${params.company || target}? This cannot be undone.`,
-    'delete': `Delete ${target}? This action cannot be undone.`,
-    'delete-file': `Delete file "${params.filename || target}"? This action cannot be undone.`,
-    'delete-branch': `Delete branch "${params.branch || target}"? This action cannot be undone.`,
-    'send-email': `Send email to ${params.recipient || target}? This will be sent immediately.`,
-    'publish': `Publish ${target || 'this content'}? It will become publicly visible.`,
-    'npm install': `Run npm install for ${target || 'this project'}? This will modify node_modules.`
+    'deploy': `**Deploy ${target || 'this project'}?**\nThis will update the live server.`,
+    'deploy-project': `**Deploy ${target || 'this project'}?**\nThis will update the live server.`,
+    'git pull': `**Git pull for ${target || 'this project'}?**\nThis will fetch and merge remote changes.`,
+    'pm2 restart': `**Restart ${target || 'the application'}?**\nThis may cause brief downtime.`,
+    'pm2 stop': `**Stop ${target || 'the application'}?**\nThe service will be unavailable until started.`,
+    'create-page': `**Create new page "${params.pageName || target}"?**\nThis will add files to the project.`,
+    'create-feature': `**Create new feature "${params.featureName || target}"?**\nThis will scaffold new files.`,
+    'create-repo': `**Create new repository "${target}"?**\nThis will create a new GitHub repo.`,
+    'file-taxes': `**File taxes for ${params.company || target}?**\nThis is a formal submission.`,
+    'submit-filing': `**Submit filing for ${params.company || target}?**\nThis cannot be undone.`,
+    'delete': `**Delete ${target}?**\nThis action cannot be undone.`,
+    'delete-file': `**Delete file "${params.filename || target}"?**\nThis action cannot be undone.`,
+    'delete-branch': `**Delete branch "${params.branch || target}"?**\nThis action cannot be undone.`,
+    'send-email': `**Send email to ${params.recipient || target}?**\nThis will be sent immediately.`,
+    'publish': `**Publish ${target || 'this content'}?**\nIt will become publicly visible.`,
+    'npm install': `**Run npm install for ${target || 'this project'}?**\nThis will modify node_modules.`,
+    'generate-image': `**Generate image?**\nPrompt: "${params.prompt || target}"\nEstimated cost: $${params.estimatedCost || '0.02'}`,
+    'generate-logo': `**Generate logo?**\nDescription: "${params.prompt || target}"\nEstimated cost: $${params.estimatedCost || '0.02'}`
   };
 
-  // Return specific message or generic
+  // Build complete message with header and footer
+  let message;
   if (messageTemplates[normalizedAction]) {
-    return messageTemplates[normalizedAction];
+    message = messageTemplates[normalizedAction];
+  } else if (target) {
+    // Generic confirmation message
+    message = `**Confirm ${action} for ${target}?**`;
+  } else {
+    message = `**Confirm ${action}?**`;
   }
 
-  // Generic confirmation message
-  if (target) {
-    return `Confirm ${action} for ${target}? Reply "yes" to proceed or "no" to cancel.`;
-  }
-
-  return `Confirm ${action}? Reply "yes" to proceed or "no" to cancel.`;
+  return header + message + footer;
 }
 
 /**

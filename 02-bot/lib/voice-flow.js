@@ -143,8 +143,11 @@ class VoiceFlow {
                 this.saveLanguagePreference(userId, detectedLanguage);
             }
 
-            // Step 2: Show transcription to user (for verification)
-            const transcriptMessage = `I heard: "${transcription}"\n\nProcessing...`;
+            // Send transcription status message
+            const statusMessage = {
+                stage: 'transcribed',
+                message: `📝 Transcribed: "${this.truncate(transcription, 150)}"`
+            };
 
             // Step 3: Classify intent (include language in context)
             let intent = null;
@@ -164,6 +167,16 @@ class VoiceFlow {
                     confidence: intent.confidence,
                     language: detectedLanguage
                 });
+
+                // Send intent classification status
+                const intentParts = [];
+                if (intent.action) intentParts.push(`Action: ${intent.action}`);
+                if (intent.project) intentParts.push(`Project: ${intent.project}`);
+                if (intent.company) intentParts.push(`Company: ${intent.company}`);
+
+                if (intentParts.length > 0) {
+                    statusMessage.intentMessage = `🎯 Intent: ${intentParts.join(', ')}`;
+                }
             }
 
             // If no intent classifier, use basic classification
@@ -178,7 +191,8 @@ class VoiceFlow {
                     stage: 'clarify',
                     transcription,
                     message: `"${this.truncate(transcription, 100)}"\n\n${clarifyQuestion}`,
-                    intent
+                    intent,
+                    statusMessage
                 };
             }
 
@@ -201,12 +215,14 @@ class VoiceFlow {
                 // Step 6: Return appropriate response based on flow (include language)
                 const response = this.buildResponse(proposal, transcription, intent);
                 response.detectedLanguage = detectedLanguage;
+                response.statusMessage = statusMessage;
                 return response;
             }
 
             // No action needed - just return the transcription with context
             const response = this.buildSimpleResponse(transcription, intent);
             response.detectedLanguage = detectedLanguage;
+            response.statusMessage = statusMessage;
             return response;
 
         } catch (error) {
