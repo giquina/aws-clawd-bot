@@ -29,7 +29,9 @@ const {
   reloadSkill,
   watchSkills,
   discoverSkillDirs,
-  loadConfig
+  discoverSkills,
+  loadConfig,
+  SKILL_PATHS
 } = require('./skill-loader');
 
 module.exports = {
@@ -43,7 +45,9 @@ module.exports = {
   reloadSkill,
   watchSkills,
   discoverSkillDirs,
+  discoverSkills,
   loadConfig,
+  SKILL_PATHS,
 
   // Convenience: initialize the full skills system
   async initialize(context = {}, options = {}) {

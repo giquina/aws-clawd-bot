@@ -54,7 +54,8 @@
     "meeting",
     "spotify",
     "wellness",
-    "goals"
+    "goals",
+    "superdesign"
   ],
   "disabled": [],
   "config": {
@@ -229,6 +230,12 @@
     "goals": {
       "maxGoals": 50,
       "deadlineReminderDays": 7
+    },
+    "superdesign": {
+      "initTimeout": 180000,
+      "generateTimeout": 600000,
+      "requiresConfirmation": false,
+      "cliVersion": "latest"
     }
   }
 }

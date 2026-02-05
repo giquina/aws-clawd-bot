@@ -348,6 +348,43 @@ router.getExtendedStats();
 - **Activity log** — in-memory ring buffer (200 entries) at `lib/activity-log.js` for real-time diagnostics.
 - **Auto-deploy on push** — GitHub webhook push to default branch triggers `git pull` + `vercel --prod` on EC2. Requires `VERCEL_TOKEN` env var and project linked via `vercel link`. Projects cloned under `/opt/projects/` on EC2.
 
+## Skill Loading System
+
+### Dual-Path Skill Loading (v2.5+)
+
+ClawdBot supports loading skills from **two locations**:
+
+1. **Universal Skills** (`~/.claude/skills/`) - Shared across all projects (Priority 1)
+2. **Local Skills** (`02-bot/skills/`) - Project-specific skills (Priority 2)
+
+**Key Features:**
+- **Automatic deduplication** - Universal skills override local duplicates
+- **Backward compatible** - Existing code works unchanged
+- **Source tagging** - Each skill tagged with `_source` ('universal' or 'local') and `_path`
+- **Transparent loading** - Logs show which source each skill comes from
+
+**Usage:**
+```javascript
+// Dual-path mode (loads from both locations)
+loadSkills(null, context);
+
+// Legacy single-path mode (still works)
+loadSkills(path.join(__dirname, 'skills'), context);
+```
+
+**Example Output:**
+```
+[SkillLoader] Scanning universal skills: C:\Users\Owner\.claude\skills
+[SkillLoader] Found skill "browser" from universal
+[SkillLoader] Scanning local skills: C:\Giquina-Projects\aws-clawd-bot\02-bot\skills
+[SkillLoader] Skipping duplicate "browser" from local (already loaded from universal)
+[SkillLoader] Successfully loaded 56 skill(s): 4 universal, 52 local
+```
+
+**Test:** Run `node 02-bot/test-skill-loader.js` to see skill discovery in action.
+
+See [docs/DUAL_PATH_SKILL_LOADING.md](02-bot/docs/DUAL_PATH_SKILL_LOADING.md) for full documentation.
+
 ## Adding a New Skill
 
 1. Create `skills/<skillname>/index.js`:

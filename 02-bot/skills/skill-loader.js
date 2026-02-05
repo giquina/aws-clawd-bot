@@ -10,7 +10,26 @@
  */
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const registry = require('./skill-registry');
+
+/**
+ * Skill search paths (in priority order)
+ * Priority 1: Universal skills in ~/.claude/skills/
+ * Priority 2: Local skills in 02-bot/skills/
+ */
+const SKILL_PATHS = [
+  {
+    path: path.join(os.homedir(), '.claude', 'skills'),
+    source: 'universal',
+    priority: 1
+  },
+  {
+    path: __dirname,
+    source: 'local',
+    priority: 2
+  }
+];
 
 /**
  * Default configuration for skill loading
@@ -108,13 +127,57 @@ function discoverSkillDirs(skillsDir, options = {}) {
 }
 
 /**
+ * Discover skills from all configured paths (universal + local)
+ * @param {Object} options - Discovery options
+ * @returns {Array} - Array of skill objects with metadata
+ */
+function discoverSkills(options = {}) {
+  const skillMap = new Map(); // Use Map to deduplicate by skill name
+
+  // Scan each skill path in priority order
+  for (const { path: skillPath, source, priority } of SKILL_PATHS) {
+    // Check if path exists
+    if (!fs.existsSync(skillPath)) {
+      console.log(`[SkillLoader] Skill path does not exist: ${skillPath} (${source})`);
+      continue;
+    }
+
+    console.log(`[SkillLoader] Scanning ${source} skills: ${skillPath}`);
+
+    // Discover skill directories in this path
+    const skillDirs = discoverSkillDirs(skillPath, options);
+
+    for (const skillDir of skillDirs) {
+      const skillName = path.basename(skillDir);
+
+      // Deduplication: universal wins if both exist (lower priority number = higher priority)
+      if (!skillMap.has(skillName) || skillMap.get(skillName).priority > priority) {
+        skillMap.set(skillName, {
+          name: skillName,
+          path: skillDir,
+          source,
+          priority
+        });
+        console.log(`[SkillLoader] Found skill "${skillName}" from ${source}: ${skillDir}`);
+      } else {
+        console.log(`[SkillLoader] Skipping duplicate "${skillName}" from ${source} (already loaded from ${skillMap.get(skillName).source})`);
+      }
+    }
+  }
+
+  // Convert Map to Array
+  return Array.from(skillMap.values());
+}
+
+/**
  * Load a single skill from its directory
  * @param {string} skillDir - Path to skill directory
  * @param {Object} context - Shared context for the skill
  * @param {Object} skillConfig - Configuration specific to this skill
+ * @param {string} source - Source of the skill ('universal' or 'local')
  * @returns {BaseSkill|null} - Loaded skill instance or null
  */
-function loadSkill(skillDir, context = {}, skillConfig = {}) {
+function loadSkill(skillDir, context = {}, skillConfig = {}, source = 'local') {
   const entryPath = path.join(skillDir, 'index.js');
   const skillName = path.basename(skillDir);
 
@@ -166,7 +229,11 @@ function loadSkill(skillDir, context = {}, skillConfig = {}) {
       return null;
     }
 
-    console.log(`[SkillLoader] Loaded skill: ${skill.name} from ${skillDir}`);
+    // Tag skill with source metadata
+    skill._source = source;
+    skill._path = skillDir;
+
+    console.log(`[SkillLoader] ✓ Loaded skill: ${skill.name} from ${source} (${skillDir})`);
     return skill;
 
   } catch (error) {
@@ -176,7 +243,7 @@ function loadSkill(skillDir, context = {}, skillConfig = {}) {
 }
 
 /**
- * Load all skills from a directory
+ * Load all skills from a directory (legacy single-path mode)
  * @param {string} skillsDir - Directory containing skill folders
  * @param {Object} context - Shared context for skills
  * @param {Object} options - Loading options
@@ -184,6 +251,79 @@ function loadSkill(skillDir, context = {}, skillConfig = {}) {
  * @returns {Promise<BaseSkill[]>} - Array of loaded skill instances
  */
 async function loadSkills(skillsDir, context = {}, options = {}) {
+  const { autoRegister = true } = options;
+
+  // If skillsDir is provided, use legacy single-path mode
+  if (skillsDir) {
+    return loadSkillsFromSinglePath(skillsDir, context, options);
+  }
+
+  // Otherwise, use new multi-path mode
+  return loadSkillsFromMultiplePaths(context, options);
+}
+
+/**
+ * Load all skills from multiple paths (universal + local)
+ * @param {Object} context - Shared context for skills
+ * @param {Object} options - Loading options
+ * @param {boolean} options.autoRegister - Automatically register with registry (default: true)
+ * @returns {Promise<BaseSkill[]>} - Array of loaded skill instances
+ */
+async function loadSkillsFromMultiplePaths(context = {}, options = {}) {
+  const { autoRegister = true } = options;
+
+  console.log('[SkillLoader] Loading skills from multiple paths...');
+
+  // Discover all skills with deduplication
+  const discoveredSkills = discoverSkills(options);
+
+  console.log(`[SkillLoader] Found ${discoveredSkills.length} unique skill(s) across all paths`);
+
+  // Load configuration from local skills directory (primary config source)
+  const localSkillsPath = SKILL_PATHS.find(p => p.source === 'local')?.path;
+  const config = localSkillsPath ? loadConfig(localSkillsPath) : { enabled: [], disabled: [], config: {} };
+
+  const loadedSkills = [];
+
+  for (const { name: skillName, path: skillDir, source } of discoveredSkills) {
+    // Check if skill is enabled
+    if (!isSkillEnabled(skillName, config)) {
+      console.log(`[SkillLoader] Skipping disabled skill: ${skillName} (${source})`);
+      continue;
+    }
+
+    // Get skill-specific config
+    const skillConfig = (config.config && config.config[skillName]) || {};
+
+    // Load the skill
+    const skill = loadSkill(skillDir, context, skillConfig, source);
+
+    if (skill) {
+      loadedSkills.push(skill);
+
+      // Auto-register with registry
+      if (autoRegister) {
+        registry.register(skill);
+      }
+    }
+  }
+
+  // Print summary by source
+  const universalCount = loadedSkills.filter(s => s._source === 'universal').length;
+  const localCount = loadedSkills.filter(s => s._source === 'local').length;
+  console.log(`[SkillLoader] Successfully loaded ${loadedSkills.length} skill(s): ${universalCount} universal, ${localCount} local`);
+
+  return loadedSkills;
+}
+
+/**
+ * Load all skills from a single directory (legacy mode for backward compatibility)
+ * @param {string} skillsDir - Directory containing skill folders
+ * @param {Object} context - Shared context for skills
+ * @param {Object} options - Loading options
+ * @returns {Promise<BaseSkill[]>} - Array of loaded skill instances
+ */
+async function loadSkillsFromSinglePath(skillsDir, context = {}, options = {}) {
   const { autoRegister = true } = options;
 
   // Resolve absolute path
@@ -219,8 +359,9 @@ async function loadSkills(skillsDir, context = {}, options = {}) {
     // Get skill-specific config
     const skillConfig = (config.config && config.config[skillName]) || {};
 
-    // Load the skill
-    const skill = loadSkill(skillDir, context, skillConfig);
+    // Load the skill (determine source based on path)
+    const source = absoluteDir.includes('.claude') ? 'universal' : 'local';
+    const skill = loadSkill(skillDir, context, skillConfig, source);
 
     if (skill) {
       loadedSkills.push(skill);
@@ -324,5 +465,7 @@ module.exports = {
   reloadSkill,
   watchSkills,
   discoverSkillDirs,
-  loadConfig
+  discoverSkills,
+  loadConfig,
+  SKILL_PATHS
 };
