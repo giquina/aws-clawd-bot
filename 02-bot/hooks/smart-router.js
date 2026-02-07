@@ -9,6 +9,14 @@ class SmartRouter {
     this.claude = null;
     this.cache = new Map(); // Cache recent translations
     this.cacheMaxAge = 5 * 60 * 1000; // 5 min cache
+    this.cacheMaxSize = 500; // Prevent unbounded growth
+    this.aiTimeoutMs = 5000; // 5s timeout for AI calls
+    this.routeMetrics = { patternHits: 0, aiHits: 0, passthroughs: 0, cacheHits: 0 };
+
+    // Dynamic skill commands - populated from skill registry
+    this._dynamicCommands = null;
+    this._dynamicCommandsAge = 0;
+    this._dynamicCommandsTTL = 60 * 1000; // Refresh every 60s
   }
 
   initialize() {
@@ -27,8 +35,92 @@ class SmartRouter {
    * @returns {Promise<string>} The routed command
    */
   async route(message, context = {}) {
-    // === PASSTHROUGH GUARD ===
-    // Messages that should ALWAYS go to AI handler, never routed to skills
+    if (!message || typeof message !== 'string') {
+      return message;
+    }
+
+    const trimmed = message.trim();
+    if (!trimmed) return message;
+
+    // === STEP 1: Check cache first (fastest) ===
+    const cacheKey = this._buildCacheKey(trimmed, context);
+    const cached = this.cache.get(cacheKey);
+    if (cached && Date.now() - cached.time < this.cacheMaxAge) {
+      this.routeMetrics.cacheHits++;
+      console.log(`[SmartRouter] Cache hit: "${trimmed}" -> "${cached.command}"`);
+      return cached.command;
+    }
+
+    // === STEP 2: Quick question guard ===
+    // Messages ending with ? are ALWAYS questions — pass to AI, never pattern match.
+    // This prevents "how do I deploy to vercel?" from matching the deploy pattern.
+    if (/\?\s*$/.test(trimmed)) {
+      this.routeMetrics.passthroughs++;
+      console.log(`[SmartRouter] Passthrough (question): "${trimmed.substring(0, 50)}"`);
+      return message;
+    }
+
+    // === STEP 3: Pattern matching (fast, before guards) ===
+    // Pattern matching runs BEFORE passthrough because it catches NL commands like
+    // "what are the deadlines" that would otherwise be caught by passthrough.
+    const patternMatch = this.patternMatch(trimmed, context);
+    if (patternMatch) {
+      this.routeMetrics.patternHits++;
+      console.log(`[SmartRouter] Pattern match: "${trimmed}" -> "${patternMatch}"`);
+      this._cacheSet(cacheKey, patternMatch);
+      return patternMatch;
+    }
+
+    // === STEP 4: Passthrough guard ===
+    // Messages that should go to AI handler, not skills
+    if (this._isPassthrough(trimmed)) {
+      this.routeMetrics.passthroughs++;
+      console.log(`[SmartRouter] Passthrough (conversational): "${trimmed.substring(0, 50)}"`);
+      return message;
+    }
+
+    // === STEP 5: Conversational build guard ===
+    if (this._isConversationalBuild(trimmed)) {
+      this.routeMetrics.passthroughs++;
+      console.log(`[SmartRouter] Conversational build request, direct to AI: "${trimmed.substring(0, 60)}"`);
+      return message;
+    }
+
+    // === STEP 6: Already looks like a structured command ===
+    if (this.looksLikeCommand(trimmed)) {
+      return this.applyAutoContext(trimmed, context);
+    }
+
+    // === STEP 7: Coding/dev instructions → AI ===
+    if (this._isCodingInstruction(trimmed)) {
+      this.routeMetrics.passthroughs++;
+      console.log(`[SmartRouter] Coding instruction, passing to AI: "${trimmed.substring(0, 60)}"`);
+      return message;
+    }
+
+    // === STEP 8: Claude Code patterns ===
+    const claudeCodeCmd = this._extractClaudeCodeCommand(trimmed);
+    if (claudeCodeCmd !== undefined) {
+      return claudeCodeCmd;
+    }
+
+    // === STEP 9: AI routing (slowest, last resort) ===
+    if (this.claude) {
+      const aiCommand = await this.aiRoute(trimmed, context);
+      if (aiCommand && aiCommand !== trimmed && aiCommand !== message) {
+        this.routeMetrics.aiHits++;
+        console.log(`[SmartRouter] AI route: "${trimmed}" -> "${aiCommand}"`);
+        this._cacheSet(cacheKey, aiCommand);
+        return aiCommand;
+      }
+    }
+
+    return message; // Return original if can't route
+  }
+
+  // === GUARDS (extracted for testability) ===
+
+  _isPassthrough(msg) {
     const passthroughPatterns = [
       // Greetings and social
       /^(hey|hi|hello|yo|sup|hiya|morning|evening|afternoon|good\s+(morning|evening|afternoon|night))(\s|!|,|\.)*$/i,
@@ -54,33 +146,17 @@ class SmartRouter {
       /^(for now|to start|initially|first|as a v1|as an mvp)\b/i,
     ];
 
-    const isPassthrough = passthroughPatterns.some(p => p.test(message.trim()));
-    if (isPassthrough) {
-      console.log(`[SmartRouter] Passthrough (conversational): "${message.substring(0, 50)}"`);
-      return message; // Return unchanged — AI handler will process it
-    }
+    return passthroughPatterns.some(p => p.test(msg));
+  }
 
-    // === CONVERSATIONAL BUILD GUARD ===
-    // Natural project discussions — direct to AI, skip expensive aiRoute()
-    const isConversationalBuild =
-      /^(hey|hi|let's|lets|i want|i'd like|i need|can you|could you|we should|shall we)\b/i.test(message.trim()) &&
-      /\b(build|create|make|develop|implement|design|plan|scaffold|setup|start|prototype)\b/i.test(message.trim());
+  _isConversationalBuild(msg) {
+    return /^(hey|hi|let's|lets|i want|i'd like|i need|can you|could you|we should|shall we)\b/i.test(msg) &&
+      /\b(build|create|make|develop|implement|design|plan|scaffold|setup|start|prototype)\b/i.test(msg);
+  }
 
-    if (isConversationalBuild) {
-      console.log(`[SmartRouter] Conversational build request, direct to AI: "${message.substring(0, 60)}"`);
-      return message;
-    }
-
-    // Skip if already looks like a command
-    if (this.looksLikeCommand(message)) {
-      // Even for commands, apply auto-context if repo name is missing
-      return this.applyAutoContext(message, context);
-    }
-
-    // Don't route coding/development instructions — let AI handle them
-    // These are feature requests, bug fixes, UI changes, etc. that need AI planning
+  _isCodingInstruction(msg) {
     const codingPatterns = [
-      /^add (a |the |an )?/i,           // "add a bottom nav bar", "add login"
+      /^add (a |the |an )?/i,
       /^(make|change|update|modify|improve|refactor|redesign)/i,
       /^(fix|debug|resolve|patch|repair)/i,
       /^(remove|delete|hide|disable) (the |a |an )?/i,
@@ -95,64 +171,48 @@ class SmartRouter {
       /^(build|create|start|scaffold)\s+(me\s+)?(a|an|the|some)/i,
       /^(let's|lets|i want to|i'd like to)\s+(build|create|make|add|implement)/i,
     ];
-    if (codingPatterns.some(p => p.test(message.trim()))) {
-      console.log(`[SmartRouter] Coding instruction, passing to AI: "${message.substring(0, 60)}"`);
-      return message;
+    return codingPatterns.some(p => p.test(msg));
+  }
+
+  _extractClaudeCodeCommand(msg) {
+    if (!/claude\s+code|use\s+the\s+agent|have\s+the\s+agent/i.test(msg)) {
+      return undefined; // Not a claude code message at all
     }
 
-    // Claude Code patterns
-    if (/claude\s+code|use\s+the\s+agent|have\s+the\s+agent/i.test(message)) {
-      // Extract task description
-      const taskMatch = message.match(/claude\s+code\s+(?:to\s+)?(.+)/i) ||
-                        message.match(/use\s+the\s+agent\s+to\s+(.+)/i) ||
-                        message.match(/have\s+the\s+agent\s+(.+)/i);
+    const taskMatch = msg.match(/claude\s+code\s+(?:to\s+)?(.+)/i) ||
+                      msg.match(/use\s+the\s+agent\s+to\s+(.+)/i) ||
+                      msg.match(/have\s+the\s+agent\s+(.+)/i);
 
-      if (taskMatch) {
-        console.log(`[SmartRouter] Claude Code pattern detected: "${message}"`);
-        return `claude code session ${taskMatch[1]}`;
-      }
-
-      // Passthrough to AI if no clear task
-      console.log(`[SmartRouter] Claude Code mention without task, passing to AI`);
-      return null;
+    if (taskMatch) {
+      console.log(`[SmartRouter] Claude Code pattern detected: "${msg}"`);
+      return `claude code session ${taskMatch[1]}`;
     }
 
-    // Check cache (include context in cache key for auto-context)
-    const cacheKey = context.autoRepo
-      ? `${message.toLowerCase()}|repo:${context.autoRepo}`
-      : message.toLowerCase();
-    const cached = this.cache.get(cacheKey);
-    if (cached && Date.now() - cached.time < this.cacheMaxAge) {
-      console.log(`[SmartRouter] Cache hit: "${message}" -> "${cached.command}"`);
-      return cached.command;
-    }
+    console.log(`[SmartRouter] Claude Code mention without task, passing to AI`);
+    return null; // null = passthrough to AI
+  }
 
-    // Try pattern matching first (fast)
-    const patternMatch = this.patternMatch(message, context);
-    if (patternMatch) {
-      console.log(`[SmartRouter] Pattern match: "${message}" -> "${patternMatch}"`);
-      this.cache.set(cacheKey, { command: patternMatch, time: Date.now() });
-      return patternMatch;
-    }
+  // === CACHE ===
 
-    // Use AI for complex queries (slower but smarter)
-    if (this.claude) {
-      const aiCommand = await this.aiRoute(message, context);
-      if (aiCommand && aiCommand !== message) {
-        console.log(`[SmartRouter] AI route: "${message}" -> "${aiCommand}"`);
-        this.cache.set(cacheKey, { command: aiCommand, time: Date.now() });
-        return aiCommand;
-      }
-    }
+  _buildCacheKey(msg, context) {
+    // Normalize: lowercase, collapse whitespace, trim
+    const normalized = msg.toLowerCase().replace(/\s+/g, ' ').trim();
+    const suffix = context.autoRepo ? `|repo:${context.autoRepo}` :
+                   context.autoCompany ? `|co:${context.autoCompany}` : '';
+    return `${normalized}${suffix}`;
+  }
 
-    return message; // Return original if can't route
+  _cacheSet(key, command) {
+    // Enforce max cache size (LRU-style: just prune oldest entries)
+    if (this.cache.size >= this.cacheMaxSize) {
+      const oldest = this.cache.keys().next().value;
+      this.cache.delete(oldest);
+    }
+    this.cache.set(key, { command, time: Date.now() });
   }
 
   /**
    * Apply auto-context to commands that need a repo/company but don't have one
-   * @param {string} command - The command to check
-   * @param {Object} context - Context with autoRepo/autoCompany
-   * @returns {string} Command with auto-context applied if needed
    */
   applyAutoContext(command, context) {
     if (!context.autoRepo && !context.autoCompany) {
@@ -174,7 +234,6 @@ class SmartRouter {
       /^project files$/i
     ];
 
-    // If we have auto-repo context and command needs one
     if (context.autoRepo) {
       for (const pattern of repoCommands) {
         if (pattern.test(cmdLower)) {
@@ -192,7 +251,6 @@ class SmartRouter {
       /^expenses$/i
     ];
 
-    // If we have auto-company context and command needs one
     if (context.autoCompany) {
       for (const pattern of companyCommands) {
         if (pattern.test(cmdLower)) {
@@ -221,17 +279,69 @@ class SmartRouter {
       /^(summary|receipts|pending|due)/i,
       // Project context commands
       /^(project status|readme|project files|switch to|my repos)/i,
-      // Remote execution commands
-      /^(run tests|deploy|logs|restart|build|install|exec)/i,
+      // Remote execution commands (require repo/project after command word)
+      /^run tests?\s+\S+/i,
+      /^deploy\s+\S+/i,
+      /^logs\s+\S+/i,
+      /^restart\s+\S+/i,
+      /^build\s+\S+$/i,
+      /^install\s+\S+/i,
+      /^exec\s+/i,
+      // Bare repo commands (no args) — only these specific short forms
+      /^(deploy|logs|restart|build|install|run tests?)$/i,
       // Explicit create project command (not "create a feature")
       /^create new project\s+\w+$/i,
     ];
+
+    // Also check dynamic commands from skill registry
+    if (this._getDynamicCommandPatterns()) {
+      const dynamicPatterns = this._getDynamicCommandPatterns();
+      if (dynamicPatterns.some(p => p.test(trimmed))) {
+        return true;
+      }
+    }
+
     return commandPatterns.some(p => p.test(trimmed));
+  }
+
+  /**
+   * Get dynamic command patterns from skill registry (cached)
+   * This ensures newly added skills are recognized as commands
+   */
+  _getDynamicCommandPatterns() {
+    const now = Date.now();
+    if (this._dynamicCommands && (now - this._dynamicCommandsAge) < this._dynamicCommandsTTL) {
+      return this._dynamicCommands;
+    }
+
+    try {
+      const registry = require('../skills/skill-registry');
+      if (!registry || !registry.skills || registry.skills.size === 0) {
+        return null;
+      }
+
+      const patterns = [];
+      for (const skill of registry.skills.values()) {
+        if (skill.commands) {
+          for (const cmd of skill.commands) {
+            if (cmd.pattern instanceof RegExp) {
+              patterns.push(cmd.pattern);
+            }
+          }
+        }
+      }
+
+      this._dynamicCommands = patterns.length > 0 ? patterns : null;
+      this._dynamicCommandsAge = now;
+      return this._dynamicCommands;
+    } catch (e) {
+      return null;
+    }
   }
 
   patternMatch(msg, context = {}) {
     const patterns = [
-      // === DEADLINES ===
+      // === DEADLINES === (specific before general)
       { match: /what.*(deadline|due).*(gq\s*cars|gqcars)/i, command: 'deadlines GQCARS' },
       { match: /what.*(deadline|due).*(gmh|holdings)/i, command: 'deadlines GMH' },
       { match: /what.*(deadline|due).*(gacc|accountants)/i, command: 'deadlines GACC' },
@@ -240,7 +350,7 @@ class SmartRouter {
       { match: /(upcoming|what).*(deadline|due)/i, command: 'deadlines' },
       { match: /anything\s+due/i, command: 'deadlines' },
 
-      // === COMPANIES ===
+      // === COMPANIES === (specific before general)
       { match: /company\s*number.*(gq\s*cars|gqcars)/i, command: 'company number GQCARS' },
       { match: /company\s*number.*(capital|gcap)/i, command: 'company number GCAP' },
       { match: /company\s*number.*(holdings|gmh)/i, command: 'company number GMH' },
@@ -258,7 +368,10 @@ class SmartRouter {
       { match: /receipt.*pending/i, command: 'pending receipts' },
       { match: /log.*(expense|receipt)/i, command: 'expenses' },
 
-      // === REPOS / GITHUB ===
+      // === REPOS / GITHUB === (specific before general)
+      { match: /all\s*(my)?\s*repos/i, command: 'my repos' },
+      { match: /list\s*all\s*repos/i, command: 'my repos' },
+      { match: /what\s*(repos?|projects?)\s+do\s+i\s+have/i, command: 'my repos' },
       { match: /(what|show|list).*(repo|project|repositories)/i, command: 'list repos' },
       { match: /my\s*(repo|project)s/i, command: 'list repos' },
       { match: /^analyze\s+(\S+)$/i, command: (m) => `analyze ${m[1]}` },
@@ -270,7 +383,7 @@ class SmartRouter {
       { match: /can\s*i\s*(hire|employ)/i, command: 'can I hire employee?' },
       { match: /can\s*i\s*(issue|create).*(shares)/i, command: 'can I issue shares?' },
       { match: /can\s*i\s*(approve|sign)/i, command: (m) => `can I ${m[0]}?` },
-      { match: /who\s*(can\s*)?(approve|sign)/i, command: (m) => m[0] }, // Pass through
+      { match: /who\s*(can\s*)?(approve|sign)/i, command: (m) => m[0] },
       { match: /board\s*(approval|meeting)/i, command: 'governance board' },
 
       // === INTERCOMPANY ===
@@ -283,9 +396,6 @@ class SmartRouter {
       { match: /workflow\s*status/i, command: 'workflows' },
 
       // === GENERAL / HELP ===
-      // NOTE: Greetings (hi, hello, good morning) and generic questions
-      // (how are you, what can you do) are handled by the passthrough guard
-      // at the top of route() — they go to the AI handler, not to skills.
       { match: /what\s*commands/i, command: 'help' },
       { match: /show.*help/i, command: 'help' },
 
@@ -297,13 +407,20 @@ class SmartRouter {
       { match: /(files|structure)\s+(in|of|for)\s+(.+)/i, command: (m) => `project files ${m[3].trim()}` },
       { match: /switch\s+to\s+(.+)/i, command: (m) => `switch to ${m[1].trim()}` },
       { match: /work(ing)?\s+on\s+(.+)/i, command: (m) => `switch to ${m[2].trim()}` },
-      { match: /all\s*(my)?\s*repos/i, command: 'my repos' },
-      { match: /list\s*all\s*repos/i, command: 'my repos' },
-      { match: /what\s*(repos?|projects?)\s+do\s+i\s+have/i, command: 'my repos' },
       { match: /what('?s| is)\s+left(\s+to\s+do)?$/i, command: 'project status' },
       { match: /todo\s+list$/i, command: 'project status' },
 
-      // === REMOTE EXECUTION ===
+      // === VERCEL DEPLOY === (MUST be before generic deploy — more specific)
+      { match: /deploy\s+(\S+)\s+to\s+vercel/i, command: (m) => `vercel deploy ${m[1].trim()}` },
+      { match: /vercel\s+deploy\s+(\S+)/i, command: (m) => `vercel deploy ${m[1].trim()}` },
+      { match: /push\s+(\S+)\s+to\s+vercel/i, command: (m) => `vercel deploy ${m[1].trim()}` },
+      { match: /preview\s+(\S+)\s+on\s+vercel/i, command: (m) => `vercel preview ${m[1].trim()}` },
+      { match: /^deploy\s+to\s+vercel/i, command: 'vercel deploy' },
+      { match: /^vercel\s+deploy$/i, command: 'vercel deploy' },
+      { match: /^push\s+to\s+vercel/i, command: 'vercel deploy' },
+      { match: /^deploy\s+(?:this|it)\s+to\s+vercel/i, command: 'vercel deploy' },
+
+      // === REMOTE EXECUTION === (generic deploy AFTER vercel-specific)
       { match: /run\s+tests?\s+(on\s+)?(.+)/i, command: (m) => `run tests ${m[2].trim()}` },
       { match: /test\s+(.+)/i, command: (m) => `run tests ${m[1].trim()}` },
       { match: /deploy\s+(.+?)(\s+to\s+prod(uction)?)?$/i, command: (m) => `deploy ${m[1].trim()}` },
@@ -312,39 +429,38 @@ class SmartRouter {
       { match: /restart\s+(.+)/i, command: (m) => `restart ${m[1].trim()}` },
       { match: /rebuild\s+(.+)/i, command: (m) => `build ${m[1].trim()}` },
 
-      // === VERCEL DEPLOY ===
-      { match: /deploy\s+(\S+)\s+to\s+vercel/i, command: (m) => `vercel deploy ${m[1].trim()}` },
-      { match: /vercel\s+deploy\s+(\S+)/i, command: (m) => `vercel deploy ${m[1].trim()}` },
-      { match: /push\s+(\S+)\s+to\s+vercel/i, command: (m) => `vercel deploy ${m[1].trim()}` },
-      { match: /preview\s+(\S+)\s+on\s+vercel/i, command: (m) => `vercel preview ${m[1].trim()}` },
-      // Without repo name — uses auto-context
-      { match: /^deploy\s+to\s+vercel/i, command: 'vercel deploy' },
-      { match: /^vercel\s+deploy$/i, command: 'vercel deploy' },
-      { match: /^push\s+to\s+vercel/i, command: 'vercel deploy' },
-      { match: /^deploy\s+(?:this|it)\s+to\s+vercel/i, command: 'vercel deploy' },
-
       // === VOICE COMMANDS ===
       { match: /what\s+(do\s+i\s+)?need\s+to\s+do\s+(for\s+)?(.+)?/i, command: (m) => m[3] ? `project status ${m[3].trim()}` : 'project status' },
       { match: /what('?s| is)\s+the\s+status\s+(of\s+)?(.+)?/i, command: (m) => m[3] ? `project status ${m[3].trim()}` : 'status' },
       { match: /what\s+should\s+i\s+work\s+on/i, command: 'project status' },
-
     ];
 
     for (const { match, command } of patterns) {
       const result = msg.match(match);
       if (result) {
-        // If command is a function, call it with the match result
         let cmd;
         if (typeof command === 'function') {
           cmd = command(result);
         } else {
           cmd = command;
         }
+        // Sanitize extracted parameters
+        cmd = this._sanitizeCommand(cmd);
         // Apply auto-context to the matched command
         return this.applyAutoContext(cmd, context);
       }
     }
     return null;
+  }
+
+  /**
+   * Sanitize command parameters to prevent injection
+   * Strips shell metacharacters from extracted user input
+   */
+  _sanitizeCommand(command) {
+    if (!command || typeof command !== 'string') return command;
+    // Strip dangerous shell characters but preserve safe ones
+    return command.replace(/[;`${}|<>&\\]/g, '').trim();
   }
 
   async aiRoute(message, context = {}) {
@@ -357,7 +473,11 @@ class SmartRouter {
         contextHint = `\n\nNote: The user is in the context of company "${context.autoCompany}". If the command needs a company and none is specified, use "${context.autoCompany}".`;
       }
 
-      const response = await this.claude.messages.create({
+      // Build dynamic command list from skill registry if available
+      const dynamicCmds = this._buildDynamicCommandList();
+
+      // Race the AI call against a timeout
+      const aiPromise = this.claude.messages.create({
         model: 'claude-3-5-haiku-20241022',
         max_tokens: 100,
         messages: [{
@@ -379,7 +499,7 @@ Available commands:
 - my repos, switch to <repo>, active project
 - run tests <repo>, deploy <repo>, logs <repo>
 - restart <repo>, build <repo>, install <repo>
-- vercel deploy <repo>, vercel preview <repo>
+- vercel deploy <repo>, vercel preview <repo>${dynamicCmds}
 
 Company codes: GMH, GACC, GCAP, GQCARS, GSPV${contextHint}
 
@@ -389,38 +509,108 @@ Command:`
         }]
       });
 
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('AI route timeout')), this.aiTimeoutMs)
+      );
+
+      const response = await Promise.race([aiPromise, timeoutPromise]);
       const aiCommand = response.content[0].text.trim();
 
-      // Basic validation - don't return nonsense
+      // Validation: don't return nonsense or multiline
       if (aiCommand.length > 100 || aiCommand.includes('\n')) {
         return null;
       }
 
+      // Sanitize the AI-generated command
+      const sanitized = this._sanitizeCommand(aiCommand);
+
       // Apply auto-context to AI-generated command as well
-      return this.applyAutoContext(aiCommand, context);
+      return this.applyAutoContext(sanitized, context);
     } catch (e) {
-      console.error('[SmartRouter] AI routing failed:', e.message);
+      if (e.message === 'AI route timeout') {
+        console.warn('[SmartRouter] AI routing timed out, falling back to passthrough');
+      } else {
+        console.error('[SmartRouter] AI routing failed:', e.message);
+      }
       return null;
+    }
+  }
+
+  /**
+   * Build dynamic command list from skill registry for AI prompt
+   */
+  _buildDynamicCommandList() {
+    try {
+      const registry = require('../skills/skill-registry');
+      if (!registry || !registry.skills || registry.skills.size === 0) {
+        return '';
+      }
+
+      const extraCmds = [];
+      for (const skill of registry.skills.values()) {
+        if (skill.commands) {
+          for (const cmd of skill.commands) {
+            if (cmd.usage && !cmd.usage.includes('(')) {
+              extraCmds.push(cmd.usage);
+            }
+          }
+        }
+      }
+
+      if (extraCmds.length === 0) return '';
+
+      // Deduplicate and limit to 30 to keep prompt manageable
+      const unique = [...new Set(extraCmds)].slice(0, 30);
+      return '\n- ' + unique.join('\n- ');
+    } catch (e) {
+      return '';
     }
   }
 
   // Clear expired cache entries
   cleanCache() {
     const now = Date.now();
+    let cleaned = 0;
     for (const [key, value] of this.cache.entries()) {
       if (now - value.time > this.cacheMaxAge) {
         this.cache.delete(key);
+        cleaned++;
       }
     }
+    return cleaned;
   }
 
-  // Get cache stats for debugging
+  // Get cache stats and routing metrics for debugging
   getCacheStats() {
     return {
       size: this.cache.size,
+      maxSize: this.cacheMaxSize,
       maxAge: this.cacheMaxAge,
-      aiEnabled: !!this.claude
+      aiEnabled: !!this.claude,
+      aiTimeoutMs: this.aiTimeoutMs,
+      metrics: { ...this.routeMetrics }
     };
+  }
+
+  /**
+   * Get routing metrics for diagnostics
+   */
+  getMetrics() {
+    const total = this.routeMetrics.patternHits + this.routeMetrics.aiHits +
+                  this.routeMetrics.passthroughs + this.routeMetrics.cacheHits;
+    return {
+      ...this.routeMetrics,
+      total,
+      patternRate: total > 0 ? ((this.routeMetrics.patternHits / total) * 100).toFixed(1) + '%' : '0%',
+      cacheRate: total > 0 ? ((this.routeMetrics.cacheHits / total) * 100).toFixed(1) + '%' : '0%',
+    };
+  }
+
+  /**
+   * Reset routing metrics
+   */
+  resetMetrics() {
+    this.routeMetrics = { patternHits: 0, aiHits: 0, passthroughs: 0, cacheHits: 0 };
   }
 }
 

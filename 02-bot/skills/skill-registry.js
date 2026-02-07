@@ -180,34 +180,50 @@ class SkillRegistry extends EventEmitter {
     const sortedSkills = Array.from(this.skills.values())
       .sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
-    // Find the first skill that can handle this command
+    // Collect ALL matching skills for conflict detection
+    const matchingSkills = [];
     for (const skill of sortedSkills) {
       try {
         if (skill.canHandle(normalizedCommand, context)) {
-          // Check if skill is initialized
-          if (!skill.isInitialized()) {
-            console.warn(`[Registry] Skill "${skill.name}" not initialized, initializing now`);
-            await skill.initialize();
-          }
-
-          // Execute the skill
-          this.emit('beforeExecute', { skill: skill.name, command: normalizedCommand, context });
-
-          const result = await skill.execute(normalizedCommand, context);
-
-          this.emit('afterExecute', {
-            skill: skill.name,
-            command: normalizedCommand,
-            context,
-            result
-          });
-
-          return {
-            ...result,
-            skill: skill.name,
-            handled: true  // Flag for webhook handler
-          };
+          matchingSkills.push(skill);
         }
+      } catch (e) {
+        // Skip skills that error during canHandle
+      }
+    }
+
+    // Log conflicts when multiple skills match
+    if (matchingSkills.length > 1) {
+      const conflictInfo = matchingSkills.map(s => `${s.name}(pri:${s.priority || 0})`).join(', ');
+      console.warn(`[Registry] Command conflict: "${normalizedCommand.substring(0, 50)}" matches ${matchingSkills.length} skills: ${conflictInfo}. Using: ${matchingSkills[0].name}`);
+    }
+
+    // Execute the highest-priority match
+    if (matchingSkills.length > 0) {
+      const skill = matchingSkills[0];
+      try {
+        if (!skill.isInitialized()) {
+          console.warn(`[Registry] Skill "${skill.name}" not initialized, initializing now`);
+          await skill.initialize();
+        }
+
+        this.emit('beforeExecute', { skill: skill.name, command: normalizedCommand, context });
+
+        const result = await skill.execute(normalizedCommand, context);
+
+        this.emit('afterExecute', {
+          skill: skill.name,
+          command: normalizedCommand,
+          context,
+          result
+        });
+
+        return {
+          ...result,
+          skill: skill.name,
+          handled: true,
+          _conflicts: matchingSkills.length > 1 ? matchingSkills.map(s => s.name) : undefined
+        };
       } catch (error) {
         console.error(`[Registry] Error executing skill "${skill.name}":`, error);
         this.emit('skillError', { name: skill.name, error, phase: 'execute', command: normalizedCommand });
@@ -290,6 +306,42 @@ class SkillRegistry extends EventEmitter {
       skillCount: this.skills.size,
       skills: this.getSkillNames()
     };
+  }
+
+  /**
+   * Detect and report all command conflicts across registered skills
+   * Useful for debugging and ensuring clean command routing
+   * @returns {Array<{command: string, skills: Array<{name: string, priority: number}>}>}
+   */
+  detectConflicts() {
+    const conflicts = [];
+    const skills = Array.from(this.skills.values());
+
+    // Collect all command patterns from all skills
+    const allPatterns = [];
+    for (const skill of skills) {
+      for (const cmd of (skill.commands || [])) {
+        if (cmd.usage) {
+          allPatterns.push({ usage: cmd.usage, skill: skill.name, priority: skill.priority || 0 });
+        }
+      }
+    }
+
+    // Test each pattern against other skills
+    for (const { usage, skill: originSkill } of allPatterns) {
+      const matching = skills
+        .filter(s => s.name !== originSkill && s.canHandle(usage))
+        .map(s => ({ name: s.name, priority: s.priority || 0 }));
+
+      if (matching.length > 0) {
+        conflicts.push({
+          command: usage,
+          skills: [{ name: originSkill, priority: allPatterns.find(p => p.skill === originSkill)?.priority || 0 }, ...matching]
+        });
+      }
+    }
+
+    return conflicts;
   }
 
   /**

@@ -1,14 +1,16 @@
 /**
- * Intent Classifier v2.0
+ * Intent Classifier v2.1
  *
  * Enhanced AI-powered intent classification with:
  * - Confidence scoring (0.0 to 1.0) with breakdown factors
+ * - Fixed weighted confidence calculation (always uses total weights)
  * - Ambiguity detection and clarifying questions
  * - Risk assessment integration
- * - Learning from user corrections
+ * - Learning from user corrections with pattern mapping
+ * - Fuzzy company name matching
+ * - AI call timeout protection
+ * - Bounded user history (LRU eviction)
  * - Alternative interpretations
- *
- * Handles natural language like "file my taxes" → accountancy project
  */
 
 const Anthropic = require('@anthropic-ai/sdk');
@@ -50,14 +52,6 @@ const fs = require('fs');
  * @property {string} reason - Classification reason
  */
 
-/**
- * @typedef {Object} CorrectionRecord
- * @property {Object} original - Original classification
- * @property {Object} corrected - What user actually meant
- * @property {string} userId - User who made the correction
- * @property {number} timestamp - When correction was made
- */
-
 class IntentClassifier {
   constructor() {
     this.claude = null;
@@ -65,14 +59,21 @@ class IntentClassifier {
     this.cache = new Map();
     this.cacheMaxAge = 10 * 60 * 1000; // 10 min cache
 
-    // User history for pattern learning
+    // User history for pattern learning (bounded)
     this.userHistory = new Map(); // userId -> { actions: [], patterns: {} }
+    this.maxUsers = 1000; // LRU cap on tracked users
+    this.maxActionsPerUser = 100;
 
     // Corrections storage for learning
     this.corrections = [];
-    // Store in the whatsapp-bot data directory
     this.correctionsFile = path.join(__dirname, '../data/intent-corrections.json');
-    this.maxCorrections = 500; // Keep last 500 corrections
+    this.maxCorrections = 500;
+
+    // Correction pattern mappings: learned substitutions
+    this.correctionPatterns = new Map(); // "original_key" -> { correctedIntent, correctedProject, count }
+
+    // AI timeout
+    this.aiTimeoutMs = 5000; // 5s timeout
 
     // Risk configuration
     this.riskLevels = {
@@ -81,18 +82,24 @@ class IntentClassifier {
       low: ['check-status', 'process-receipt', 'check-deadlines', 'list', 'view', 'get']
     };
 
-    // Ambiguity thresholds
-    this.ambiguityThreshold = 0.5; // Below this, consider ambiguous
-    this.clarificationThreshold = 0.3; // Below this, always ask questions
+    // Ambiguity thresholds (tunable)
+    this.ambiguityThreshold = 0.5;
+    this.clarificationThreshold = 0.3;
+
+    // Confidence weights (fixed: always sums to 1.0)
+    this.confidenceWeights = {
+      keywordMatch: 0.4,
+      contextMatch: 0.25,
+      historyMatch: 0.15,
+      specificity: 0.2
+    };
   }
 
   initialize() {
-    // Load Claude
     if (process.env.ANTHROPIC_API_KEY) {
       this.claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     }
 
-    // Load project registry
     try {
       this.registry = require('../../config/project-registry.json');
       console.log(`[IntentClassifier] Loaded ${Object.keys(this.registry.projects).length} projects`);
@@ -101,10 +108,8 @@ class IntentClassifier {
       this.registry = { projects: {}, intents: {}, companies: {} };
     }
 
-    // Load saved corrections for learning
     this.loadCorrections();
-
-    console.log('[IntentClassifier] Initialized with confidence scoring v2.0');
+    console.log('[IntentClassifier] Initialized with confidence scoring v2.1');
   }
 
   /**
@@ -112,7 +117,6 @@ class IntentClassifier {
    */
   loadCorrections() {
     try {
-      // Ensure data directory exists
       const dataDir = path.dirname(this.correctionsFile);
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
@@ -120,8 +124,21 @@ class IntentClassifier {
 
       if (fs.existsSync(this.correctionsFile)) {
         const data = fs.readFileSync(this.correctionsFile, 'utf8');
-        this.corrections = JSON.parse(data);
-        console.log(`[IntentClassifier] Loaded ${this.corrections.length} corrections for learning`);
+        const parsed = JSON.parse(data);
+
+        // Support both old (array) and new (object with patterns) format
+        if (Array.isArray(parsed)) {
+          this.corrections = parsed;
+        } else {
+          this.corrections = parsed.corrections || [];
+          // Restore learned patterns
+          if (parsed.patterns) {
+            for (const [key, value] of Object.entries(parsed.patterns)) {
+              this.correctionPatterns.set(key, value);
+            }
+          }
+        }
+        console.log(`[IntentClassifier] Loaded ${this.corrections.length} corrections, ${this.correctionPatterns.size} learned patterns`);
       }
     } catch (err) {
       console.error('[IntentClassifier] Failed to load corrections:', err.message);
@@ -130,7 +147,7 @@ class IntentClassifier {
   }
 
   /**
-   * Save corrections to disk
+   * Save corrections and learned patterns to disk
    */
   saveCorrections() {
     try {
@@ -138,24 +155,27 @@ class IntentClassifier {
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
       }
-      fs.writeFileSync(this.correctionsFile, JSON.stringify(this.corrections, null, 2));
+
+      const data = {
+        corrections: this.corrections,
+        patterns: Object.fromEntries(this.correctionPatterns)
+      };
+
+      fs.writeFileSync(this.correctionsFile, JSON.stringify(data, null, 2));
     } catch (err) {
       console.error('[IntentClassifier] Failed to save corrections:', err.message);
     }
   }
 
   /**
-   * Classify user intent from a message (v2.0 with confidence scoring)
-   * @param {string} message - User's message (text or transcribed voice)
-   * @param {Object} context - Additional context (mediaType, activeProject, userId, etc.)
-   * @returns {ClassificationResult} Enhanced classification result
+   * Classify user intent from a message (v2.1)
    */
   async classify(message, context = {}) {
     if (!message && !context.hasMedia) {
       return this.defaultResult('empty');
     }
 
-    // Check for correction patterns first ("no I meant", "change to", etc.)
+    // Check for correction patterns first
     const correctionCheck = this.checkForCorrection(message, context);
     if (correctionCheck) {
       return correctionCheck;
@@ -172,31 +192,30 @@ class IntentClassifier {
     // Check corrections database for similar patterns
     this.enhanceWithCorrections(quickMatch, message);
 
+    // Check learned correction patterns for direct overrides
+    this._applyLearnedPatterns(quickMatch, message);
+
     if (quickMatch.confidence > 0.8) {
-      // High confidence - apply risk assessment and return
       const result = this.assessRisk(quickMatch);
       console.log(`[IntentClassifier] Quick match: ${result.intent} → ${result.project} (confidence: ${result.confidence.toFixed(2)})`);
       return result;
     }
 
-    // Use AI for complex classification
+    // Use AI for complex classification — with timeout
     if (this.claude) {
       try {
         const aiResult = await this.aiClassify(message, context);
 
-        // Enhance AI result with history
         if (context.userId) {
           this.enhanceWithHistory(aiResult, context.userId, message);
         }
 
-        // Check for ambiguity
         this.detectAmbiguity(aiResult, message, context);
 
         if (aiResult.confidence > 0.5) {
           const result = this.assessRisk(aiResult);
           console.log(`[IntentClassifier] AI match: ${result.intent} → ${result.project} (confidence: ${result.confidence.toFixed(2)})`);
 
-          // Track for user history
           if (context.userId && result.confidence > 0.7) {
             this.trackUserAction(context.userId, result);
           }
@@ -217,14 +236,10 @@ class IntentClassifier {
 
   /**
    * Simplified classifyIntent for action controller integration
-   * @param {string} message - User's message
-   * @param {Object} context - Context including activeProject, userId, etc.
-   * @returns {ClassificationResult} Full enhanced classification
    */
   async classifyIntent(message, context = {}) {
     const result = await this.classify(message, context);
 
-    // Map to expected format for action controller
     return {
       actionType: result.action || result.intent,
       target: result.project,
@@ -241,7 +256,7 @@ class IntentClassifier {
   }
 
   /**
-   * Quick pattern matching for common intents (v2.0 with confidence factors)
+   * Quick pattern matching for common intents (v2.1 with fixed confidence)
    */
   quickPatternMatch(message, context = {}) {
     const msg = (message || '').toLowerCase();
@@ -266,14 +281,10 @@ class IntentClassifier {
       requiresConfirmation: false
     };
 
-    // Track what matches we found for specificity scoring
-    let keywordMatches = [];
     let projectMatches = [];
-    let intentMatches = [];
 
     // Check for receipt/expense (with or without image)
     if (context.hasMedia && context.mediaType === 'image') {
-      // Image attached - likely a receipt
       const receiptKeywords = ['receipt', 'expense', 'paid', 'bought', 'invoice', 'bill'];
       const matchedKeywords = receiptKeywords.filter(k => msg.includes(k));
 
@@ -282,12 +293,11 @@ class IntentClassifier {
         result.project = 'giquina-accountancy';
         result.action = 'process-receipt';
         result.confidenceFactors.keywordMatch = matchedKeywords.length > 0 ? 0.95 : 0.7;
-        result.confidenceFactors.contextMatch = 1.0; // Image context is strong
+        result.confidenceFactors.contextMatch = 1.0;
         result.confidenceFactors.specificity = 0.85;
         result.confidence = this.calculateOverallConfidence(result.confidenceFactors);
         result.summary = 'Process receipt for expense tracking';
 
-        // Try to detect company
         result.company = this.detectCompany(msg);
         if (result.company) {
           result.confidenceFactors.specificity = 0.95;
@@ -307,12 +317,10 @@ class IntentClassifier {
       for (const keyword of project.keywords || []) {
         if (msg.includes(keyword.toLowerCase())) {
           matchedKeywords.push(keyword);
-          // Longer keywords = stronger match
           matchStrength = Math.max(matchStrength, keyword.length / 15);
         }
       }
 
-      // Check for exact project name match
       if (msg.includes(projectId.toLowerCase())) {
         matchStrength = Math.max(matchStrength, 0.95);
         matchedKeywords.push(projectId);
@@ -327,13 +335,11 @@ class IntentClassifier {
       }
     }
 
-    // Sort by strength and pick best match
     if (projectMatches.length > 0) {
       projectMatches.sort((a, b) => b.strength - a.strength);
       result.project = projectMatches[0].project;
       result.confidenceFactors.keywordMatch = projectMatches[0].strength;
 
-      // Add alternatives if there are close matches
       for (let i = 1; i < Math.min(projectMatches.length, 3); i++) {
         if (projectMatches[i].strength > 0.5) {
           result.alternatives.push({
@@ -346,7 +352,8 @@ class IntentClassifier {
       }
     }
 
-    // Check for intent patterns (collect all matches)
+    // Check for intent patterns
+    let intentMatches = [];
     for (const [intentId, intent] of Object.entries(this.registry.intents)) {
       let matchStrength = 0;
       const matchedPatterns = [];
@@ -354,7 +361,6 @@ class IntentClassifier {
       for (const pattern of intent.patterns || []) {
         if (msg.includes(pattern.toLowerCase())) {
           matchedPatterns.push(pattern);
-          // Longer patterns = stronger match
           matchStrength = Math.max(matchStrength, pattern.length / 20);
         }
       }
@@ -371,7 +377,6 @@ class IntentClassifier {
       }
     }
 
-    // Sort by strength and pick best intent match
     if (intentMatches.length > 0) {
       intentMatches.sort((a, b) => b.strength - a.strength);
       const bestIntent = intentMatches[0];
@@ -383,14 +388,12 @@ class IntentClassifier {
         bestIntent.strength
       );
 
-      // If no project yet, find one that matches this intent
       if (!result.project && bestIntent.requiredCapability) {
         result.project = this.findProjectByCapability(bestIntent.requiredCapability);
       } else if (!result.project && bestIntent.projectTypes) {
         result.project = this.findProjectByType(bestIntent.projectTypes[0]);
       }
 
-      // Add alternative intents
       for (let i = 1; i < Math.min(intentMatches.length, 3); i++) {
         if (intentMatches[i].strength > 0.3) {
           result.alternatives.push({
@@ -402,17 +405,16 @@ class IntentClassifier {
       }
     }
 
-    // Check for company mentions
+    // Check for company mentions (with fuzzy matching)
     if (!result.company) {
       result.company = this.detectCompany(msg);
       if (result.company && !result.project) {
-        // Company mentioned but no project - likely accountancy
         result.project = 'giquina-accountancy';
         result.confidenceFactors.contextMatch = 0.7;
       }
     }
 
-    // Calculate specificity based on message clarity
+    // Calculate specificity
     result.confidenceFactors.specificity = this.calculateSpecificity(msg, result);
 
     // Context match from active project
@@ -423,10 +425,7 @@ class IntentClassifier {
       result.confidenceFactors.contextMatch = 0.9;
     }
 
-    // Build summary
     result.summary = this.buildSummary(result, msg);
-
-    // Calculate overall confidence
     result.confidence = this.calculateOverallConfidence(result.confidenceFactors);
 
     return result;
@@ -434,37 +433,21 @@ class IntentClassifier {
 
   /**
    * Calculate specificity score based on message clarity
-   * @param {string} msg - The message
-   * @param {Object} result - Current classification result
-   * @returns {number} Specificity score 0.0-1.0
    */
   calculateSpecificity(msg, result) {
-    let score = 0.5; // Base score
+    let score = 0.5;
 
-    // Short vague messages are less specific
     if (msg.length < 10) score -= 0.2;
     if (msg.length > 30) score += 0.1;
 
-    // Has both intent and project = more specific
     if (result.intent && result.project) score += 0.2;
-
-    // Has company = even more specific
     if (result.company) score += 0.1;
 
-    // Single word = vague
     const wordCount = msg.split(/\s+/).length;
     if (wordCount === 1) score -= 0.2;
     if (wordCount >= 3) score += 0.1;
 
-    // Vague phrases reduce specificity
-    const vaguePatterns = [
-      'do the thing',
-      'do that',
-      'do it',
-      'the usual',
-      'you know',
-      'same as before'
-    ];
+    const vaguePatterns = ['do the thing', 'do that', 'do it', 'the usual', 'you know', 'same as before'];
     for (const pattern of vaguePatterns) {
       if (msg.includes(pattern)) {
         score -= 0.3;
@@ -477,40 +460,23 @@ class IntentClassifier {
 
   /**
    * Calculate overall confidence from factors
-   * @param {ConfidenceFactors} factors - The confidence factors
-   * @returns {number} Overall confidence 0.0-1.0
+   * FIXED: Always uses total weights sum (1.0), not just present factors.
+   * This prevents inflated scores when only one factor matches.
    */
   calculateOverallConfidence(factors) {
-    // Weighted average with keyword match being most important
-    const weights = {
-      keywordMatch: 0.4,
-      contextMatch: 0.25,
-      historyMatch: 0.15,
-      specificity: 0.2
-    };
-
-    let totalWeight = 0;
+    const weights = this.confidenceWeights;
     let weightedSum = 0;
 
     for (const [key, weight] of Object.entries(weights)) {
-      if (factors[key] > 0) {
-        weightedSum += factors[key] * weight;
-        totalWeight += weight;
-      }
+      weightedSum += (factors[key] || 0) * weight;
     }
 
-    // If no factors, return 0
-    if (totalWeight === 0) return 0;
-
-    // Normalize to account for missing factors
-    return weightedSum / totalWeight;
+    // Total weights always sum to 1.0, so weightedSum IS the confidence
+    return Math.min(weightedSum, 1.0);
   }
 
   /**
    * Build a human-readable summary of the classification
-   * @param {Object} result - Classification result
-   * @param {string} msg - Original message
-   * @returns {string} Summary
    */
   buildSummary(result, msg) {
     const parts = [];
@@ -541,7 +507,7 @@ class IntentClassifier {
   }
 
   /**
-   * AI-powered classification for complex queries (v2.0 with enhanced output)
+   * AI-powered classification with timeout protection
    */
   async aiClassify(message, context = {}) {
     const projectList = Object.entries(this.registry.projects)
@@ -596,17 +562,23 @@ Consider a message ambiguous if:
 
 Only respond with the JSON, nothing else.`;
 
-    const response = await this.claude.messages.create({
+    // Race against timeout
+    const aiPromise = this.claude.messages.create({
       model: 'claude-3-5-haiku-20241022',
       max_tokens: 800,
       messages: [{ role: 'user', content: prompt }]
     });
 
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('AI classify timeout')), this.aiTimeoutMs)
+    );
+
+    const response = await Promise.race([aiPromise, timeoutPromise]);
+
     try {
       const jsonStr = response.content[0].text.trim();
       const result = JSON.parse(jsonStr);
 
-      // Build enhanced result
       return {
         intent: result.intent || 'unknown',
         project: result.project,
@@ -674,12 +646,17 @@ Only include actual actionable tasks. If the message is just a question or greet
 Only respond with JSON.`;
 
     try {
-      const response = await this.claude.messages.create({
+      const aiPromise = this.claude.messages.create({
         model: 'claude-3-5-sonnet-20241022',
         max_tokens: 1000,
         messages: [{ role: 'user', content: prompt }]
       });
 
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('extractTasks timeout')), this.aiTimeoutMs)
+      );
+
+      const response = await Promise.race([aiPromise, timeoutPromise]);
       const jsonStr = response.content[0].text.trim();
       const result = JSON.parse(jsonStr);
       return {
@@ -696,10 +673,12 @@ Only respond with JSON.`;
   }
 
   /**
-   * Detect company from message
+   * Detect company from message — with fuzzy matching
    */
   detectCompany(message) {
     const msg = message.toLowerCase();
+
+    // Exact keyword matching first
     for (const [code, company] of Object.entries(this.registry.companies)) {
       for (const keyword of company.keywords || []) {
         if (msg.includes(keyword.toLowerCase())) {
@@ -707,7 +686,64 @@ Only respond with JSON.`;
         }
       }
     }
+
+    // Fuzzy matching: Levenshtein distance for company names
+    const companyNames = Object.entries(this.registry.companies).map(([code, c]) => ({
+      code,
+      name: (c.name || '').toLowerCase(),
+      keywords: (c.keywords || []).map(k => k.toLowerCase())
+    }));
+
+    // Extract words from message for fuzzy matching
+    const words = msg.split(/\s+/).filter(w => w.length >= 3);
+
+    for (const word of words) {
+      for (const company of companyNames) {
+        // Check fuzzy match against company name
+        if (this._fuzzyMatch(word, company.name, 2)) {
+          return company.code;
+        }
+        // Check fuzzy match against keywords
+        for (const kw of company.keywords) {
+          if (kw.length >= 3 && this._fuzzyMatch(word, kw, 1)) {
+            return company.code;
+          }
+        }
+      }
+    }
+
     return null;
+  }
+
+  /**
+   * Fuzzy string matching using Levenshtein distance
+   * @param {string} a - Source string
+   * @param {string} b - Target string
+   * @param {number} maxDistance - Maximum allowed edit distance
+   * @returns {boolean} Whether strings are within edit distance
+   */
+  _fuzzyMatch(a, b, maxDistance) {
+    if (Math.abs(a.length - b.length) > maxDistance) return false;
+    if (a === b) return true;
+
+    const matrix = [];
+    for (let i = 0; i <= a.length; i++) {
+      matrix[i] = [i];
+      for (let j = 1; j <= b.length; j++) {
+        if (i === 0) {
+          matrix[i][j] = j;
+        } else {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j - 1] + cost
+          );
+        }
+      }
+    }
+
+    return matrix[a.length][b.length] <= maxDistance;
   }
 
   /**
@@ -726,7 +762,6 @@ Only respond with JSON.`;
    * Find project by type
    */
   findProjectByType(type) {
-    // Sort by priority
     const sorted = Object.entries(this.registry.projects)
       .filter(([id, p]) => p.type === type || type === 'all')
       .sort((a, b) => (a[1].priority || 99) - (b[1].priority || 99));
@@ -757,7 +792,7 @@ Only respond with JSON.`;
   }
 
   /**
-   * Default result (v2.0 with all required fields)
+   * Default result (v2.1)
    */
   defaultResult(reason) {
     return {
@@ -789,29 +824,21 @@ Only respond with JSON.`;
   // RISK ASSESSMENT
   // ============================================================================
 
-  /**
-   * Assess risk level and set confirmation requirements
-   * @param {Object} intent - The classified intent
-   * @returns {Object} Intent with risk assessment added
-   */
   assessRisk(intent) {
     const action = intent.action || intent.intent;
     let risk = 'low';
 
-    // Check high risk actions
     if (this.riskLevels.high.some(a => action?.includes(a))) {
       risk = 'high';
-    }
-    // Check medium risk actions
-    else if (this.riskLevels.medium.some(a => action?.includes(a))) {
+    } else if (this.riskLevels.medium.some(a => action?.includes(a))) {
       risk = 'medium';
     }
 
-    // Production/live mentions increase risk
     const target = intent.project || intent.target || '';
     if (/prod|production|live|master|main/i.test(target)) {
+      // Escalate one level: low→medium, medium→high (not both in one step)
       if (risk === 'low') risk = 'medium';
-      if (risk === 'medium') risk = 'high';
+      else if (risk === 'medium') risk = 'high';
     }
 
     intent.risk = risk;
@@ -824,20 +851,12 @@ Only respond with JSON.`;
   // AMBIGUITY DETECTION
   // ============================================================================
 
-  /**
-   * Detect if a classification result is ambiguous
-   * @param {Object} result - Classification result
-   * @param {string} message - Original message
-   * @param {Object} context - Classification context
-   */
   detectAmbiguity(result, message, context = {}) {
     const questions = [];
 
-    // Low confidence = likely ambiguous
     if (result.confidence < this.ambiguityThreshold) {
       result.ambiguous = true;
 
-      // Generate appropriate questions
       if (!result.project) {
         questions.push('Which project did you mean?');
       }
@@ -852,7 +871,6 @@ Only respond with JSON.`;
       }
     }
 
-    // Very low confidence = definitely ask
     if (result.confidence < this.clarificationThreshold) {
       result.ambiguous = true;
       if (questions.length === 0) {
@@ -860,7 +878,6 @@ Only respond with JSON.`;
       }
     }
 
-    // Multiple strong alternatives = ambiguous
     if (result.alternatives && result.alternatives.length > 0) {
       const strongAlts = result.alternatives.filter(a => a.confidence > 0.4);
       if (strongAlts.length > 0 && result.confidence < 0.7) {
@@ -869,7 +886,6 @@ Only respond with JSON.`;
       }
     }
 
-    // Vague patterns
     const vaguePatterns = ['do the thing', 'do that', 'do it', 'the usual', 'you know'];
     const msg = message.toLowerCase();
     for (const pattern of vaguePatterns) {
@@ -880,26 +896,19 @@ Only respond with JSON.`;
       }
     }
 
-    result.clarifyingQuestions = [...new Set(questions)]; // Remove duplicates
+    result.clarifyingQuestions = [...new Set(questions)];
   }
 
   // ============================================================================
-  // USER HISTORY AND LEARNING
+  // USER HISTORY AND LEARNING (with bounded memory)
   // ============================================================================
 
-  /**
-   * Enhance result with user history patterns
-   * @param {Object} result - Current classification result
-   * @param {string} userId - User identifier
-   * @param {string} message - Original message
-   */
   enhanceWithHistory(result, userId, message) {
     const history = this.userHistory.get(userId);
     if (!history || history.actions.length === 0) {
       return;
     }
 
-    // Find similar past actions
     const recentActions = history.actions.slice(-20);
     let historyBoost = 0;
 
@@ -911,7 +920,6 @@ Only respond with JSON.`;
       }
     }
 
-    // If result project matches user's frequent projects, boost confidence
     if (result.project && projectCounts[result.project]) {
       const frequency = projectCounts[result.project] / recentActions.length;
       historyBoost += frequency * 0.3;
@@ -930,19 +938,21 @@ Only respond with JSON.`;
       historyBoost += frequency * 0.2;
     }
 
-    // Update confidence factors
     result.confidenceFactors.historyMatch = Math.min(historyBoost, 1.0);
-
-    // Recalculate overall confidence
     result.confidence = this.calculateOverallConfidence(result.confidenceFactors);
   }
 
   /**
-   * Track user action for future pattern learning
-   * @param {string} userId - User identifier
-   * @param {Object} result - Classification result
+   * Track user action for future pattern learning (bounded)
    */
   trackUserAction(userId, result) {
+    // Enforce LRU user limit
+    if (!this.userHistory.has(userId) && this.userHistory.size >= this.maxUsers) {
+      // Evict oldest user (first key in Map)
+      const oldestUser = this.userHistory.keys().next().value;
+      this.userHistory.delete(oldestUser);
+    }
+
     if (!this.userHistory.has(userId)) {
       this.userHistory.set(userId, {
         actions: [],
@@ -952,7 +962,6 @@ Only respond with JSON.`;
 
     const history = this.userHistory.get(userId);
 
-    // Add to action history
     history.actions.push({
       intent: result.intent,
       project: result.project,
@@ -960,22 +969,16 @@ Only respond with JSON.`;
       timestamp: Date.now()
     });
 
-    // Keep only last 100 actions
-    if (history.actions.length > 100) {
-      history.actions = history.actions.slice(-100);
+    // Keep only recent actions per user
+    if (history.actions.length > this.maxActionsPerUser) {
+      history.actions = history.actions.slice(-this.maxActionsPerUser);
     }
   }
 
   // ============================================================================
-  // CORRECTIONS AND LEARNING
+  // CORRECTIONS AND LEARNING (with pattern mapping)
   // ============================================================================
 
-  /**
-   * Check if message is a correction of previous classification
-   * @param {string} message - User message
-   * @param {Object} context - Context with lastClassification
-   * @returns {Object|null} New classification if correction detected, null otherwise
-   */
   checkForCorrection(message, context = {}) {
     const correctionPatterns = [
       /^no,?\s*i\s*meant\s+(.+)/i,
@@ -992,15 +995,10 @@ Only respond with JSON.`;
     for (const pattern of correctionPatterns) {
       const match = msg.match(pattern);
       if (match && context.lastClassification) {
-        // Extract the correction and re-classify
         const correctionText = match[1];
-
-        // Record the correction for learning
         this.recordCorrection(context.lastClassification, { correctionText }, context.userId);
-
-        // Return null to trigger re-classification with the corrected text
         console.log(`[IntentClassifier] Correction detected: "${correctionText}"`);
-        return null; // Let the classify method handle the correctionText
+        return null; // Let classify method handle the correctionText
       }
     }
 
@@ -1008,10 +1006,7 @@ Only respond with JSON.`;
   }
 
   /**
-   * Record a correction for future learning
-   * @param {Object} originalIntent - What was originally classified
-   * @param {Object} correctedIntent - What user actually meant
-   * @param {string} userId - User identifier
+   * Record a correction and learn pattern mappings
    */
   recordCorrection(originalIntent, correctedIntent, userId = 'unknown') {
     const correction = {
@@ -1027,44 +1022,63 @@ Only respond with JSON.`;
 
     this.corrections.push(correction);
 
-    // Keep only the most recent corrections
     if (this.corrections.length > this.maxCorrections) {
       this.corrections = this.corrections.slice(-this.maxCorrections);
     }
 
-    // Save to disk
-    this.saveCorrections();
+    // Learn a pattern mapping: "when intent=X and project=Y, user actually meant Z"
+    const patternKey = `${originalIntent.intent || 'unknown'}:${originalIntent.project || 'unknown'}`;
+    const existing = this.correctionPatterns.get(patternKey) || { count: 0 };
 
-    console.log(`[IntentClassifier] Recorded correction: ${JSON.stringify(correction)}`);
+    if (correctedIntent.correctionText) {
+      this.correctionPatterns.set(patternKey, {
+        correctedText: correctedIntent.correctionText,
+        count: existing.count + 1,
+        lastUsed: Date.now()
+      });
+    }
+
+    this.saveCorrections();
+    console.log(`[IntentClassifier] Recorded correction: ${patternKey} (${existing.count + 1}x)`);
+  }
+
+  /**
+   * Apply learned correction patterns to adjust confidence
+   */
+  _applyLearnedPatterns(result, message) {
+    const patternKey = `${result.intent || 'unknown'}:${result.project || 'unknown'}`;
+    const learned = this.correctionPatterns.get(patternKey);
+
+    if (learned && learned.count >= 2) {
+      // This classification was corrected multiple times — reduce confidence
+      const penalty = Math.min(learned.count * 0.1, 0.4);
+      result.confidence = Math.max(0, result.confidence - penalty);
+      result.ambiguous = true;
+      result.clarifyingQuestions = result.clarifyingQuestions || [];
+      result.clarifyingQuestions.push(
+        `Last time you corrected this to "${learned.correctedText}". Did you mean that again?`
+      );
+    }
   }
 
   /**
    * Learn from past corrections to adjust future classifications
-   * @param {Object} result - Current classification result
-   * @param {string} message - Original message
    */
   enhanceWithCorrections(result, message) {
     if (this.corrections.length === 0) return;
 
-    const msg = message.toLowerCase();
-
-    // Look for patterns in corrections that match current classification
     const relevantCorrections = this.corrections.filter(c => {
-      // Same intent was corrected before
       return c.original.intent === result.intent ||
         c.original.project === result.project;
     });
 
     if (relevantCorrections.length === 0) return;
 
-    // Reduce confidence if this type of classification was often corrected
     const correctionRate = relevantCorrections.length / this.corrections.length;
     if (correctionRate > 0.2) {
-      // More than 20% of corrections were for this type
       result.confidence *= (1 - correctionRate * 0.3);
       result.confidenceFactors.historyMatch *= (1 - correctionRate * 0.3);
 
-      // Add a note about past corrections
       if (!result.alternatives) result.alternatives = [];
       result.alternatives.push({
         actionType: 'check-with-user',
@@ -1076,11 +1090,11 @@ Only respond with JSON.`;
 
   /**
    * Get correction statistics
-   * @returns {Object} Correction stats
    */
   getCorrectionStats() {
     const stats = {
       totalCorrections: this.corrections.length,
+      learnedPatterns: this.correctionPatterns.size,
       byIntent: {},
       byProject: {},
       recentCorrections: this.corrections.slice(-10)
@@ -1102,28 +1116,15 @@ Only respond with JSON.`;
   // USER HISTORY MANAGEMENT
   // ============================================================================
 
-  /**
-   * Get user history
-   * @param {string} userId - User identifier
-   * @returns {Object|null} User history or null
-   */
   getUserHistory(userId) {
     return this.userHistory.get(userId) || null;
   }
 
-  /**
-   * Clear user history
-   * @param {string} userId - User identifier
-   */
   clearUserHistory(userId) {
     this.userHistory.delete(userId);
     console.log(`[IntentClassifier] Cleared history for user ${userId}`);
   }
 
-  /**
-   * Get confidence thresholds
-   * @returns {Object} Current threshold settings
-   */
   getThresholds() {
     return {
       ambiguityThreshold: this.ambiguityThreshold,
@@ -1131,10 +1132,6 @@ Only respond with JSON.`;
     };
   }
 
-  /**
-   * Update confidence thresholds
-   * @param {Object} thresholds - New threshold values
-   */
   setThresholds(thresholds) {
     if (typeof thresholds.ambiguityThreshold === 'number') {
       this.ambiguityThreshold = thresholds.ambiguityThreshold;
@@ -1142,6 +1139,13 @@ Only respond with JSON.`;
     if (typeof thresholds.clarificationThreshold === 'number') {
       this.clarificationThreshold = thresholds.clarificationThreshold;
     }
+  }
+
+  /**
+   * Get tracked user count for diagnostics
+   */
+  getTrackedUserCount() {
+    return this.userHistory.size;
   }
 }
 
