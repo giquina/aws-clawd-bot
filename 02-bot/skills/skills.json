@@ -57,7 +57,17 @@
     "goals",
     "superdesign",
     "nl-tuning",
-    "design-review"
+    "design-review",
+    "changelog",
+    "knowledge-base",
+    "dependency-guard",
+    "deployment-pipeline",
+    "weekly-report",
+    "incident-response",
+    "cost-tracker",
+    "workflow",
+    "pr-watcher",
+    "feature-flags"
   ],
   "disabled": [],
   "config": {
@@ -244,6 +254,48 @@
       "maxFilesToReview": 10,
       "reviewHistorySize": 20,
       "aiModel": "claude-sonnet-4-20250514"
+    },
+    "changelog": {
+      "defaultDays": 7,
+      "maxCommits": 100
+    },
+    "knowledge-base": {
+      "maxEntries": 500,
+      "searchResultLimit": 5
+    },
+    "dependency-guard": {
+      "scanSchedule": "nightly",
+      "severityThreshold": "medium"
+    },
+    "deployment-pipeline": {
+      "maxHistory": 50,
+      "requireConfirmation": true
+    },
+    "weekly-report": {
+      "defaultDay": "friday",
+      "defaultTime": "17:00",
+      "cacheTTLMinutes": 5
+    },
+    "incident-response": {
+      "maxIncidents": 50,
+      "autoEscalateCritical": true
+    },
+    "cost-tracker": {
+      "defaultCurrency": "GBP",
+      "monthlyBudget": 50,
+      "maxLogEntries": 1000
+    },
+    "workflow": {
+      "maxHistory": 20,
+      "maxCustomWorkflows": 10
+    },
+    "pr-watcher": {
+      "minQualityScore": 80,
+      "requireTests": true
+    },
+    "feature-flags": {
+      "maxFlagsPerRepo": 50,
+      "historySize": 50
     }
   }
 }

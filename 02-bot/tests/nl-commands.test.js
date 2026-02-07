@@ -1430,6 +1430,110 @@ function testDesignQualityFramework() {
 }
 
 // ============================================================================
+// NEW SKILLS TESTS (10 skills)
+// ============================================================================
+
+function testNewSkills() {
+  section('New Skills — Skill Loading & Command Patterns');
+
+  // Helper to test a skill
+  function testSkill(skillPath, expectedName, expectedPriority, commandTests) {
+    let SkillClass;
+    try { SkillClass = require(skillPath); } catch (e) {
+      test(expectedName, `loads without error`, false, e.message);
+      return;
+    }
+    const s = new SkillClass();
+    test(expectedName, `name is "${expectedName}"`, s.name === expectedName);
+    test(expectedName, `has priority ${expectedPriority}`, s.priority === expectedPriority);
+    test(expectedName, `has commands array`, Array.isArray(s.commands) && s.commands.length > 0);
+    test(expectedName, `has execute method`, typeof s.execute === 'function');
+
+    for (const [input, shouldMatch] of commandTests) {
+      const matched = s.commands.some(c => c.pattern.test(input));
+      test(expectedName, `"${input}" ${shouldMatch ? 'matches' : 'does not match'}`, matched === shouldMatch);
+    }
+  }
+
+  // 1. dependency-guard
+  testSkill('../skills/dependency-guard/index', 'dependency-guard', 20, [
+    ['scan deps JUDO', true],
+    ['check vulnerabilities LusoTown', true],
+    ['scan all deps', true],
+    ['vulnerability report', true],
+    ['dep guard status', true],
+    ['hello there', false],
+  ]);
+
+  // 2. deployment-pipeline
+  testSkill('../skills/deployment-pipeline/index', 'deployment-pipeline', 22, [
+    ['pipeline deploy JUDO', true],
+    ['pipeline status', true],
+    ['deploy history', true],
+  ]);
+
+  // 3. weekly-report
+  testSkill('../skills/weekly-report/index', 'weekly-report', 30, [
+    ['weekly report', true],
+    ['weekly summary', true],
+    ['week in review', true],
+    ['weekly compare', true],
+  ]);
+
+  // 4. incident-response
+  testSkill('../skills/incident-response/index', 'incident-response', 92, [
+    ['incident create API returning 500', true],
+    ['incident status', true],
+    ['incident history', true],
+  ]);
+
+  // 5. changelog
+  testSkill('../skills/changelog/index', 'changelog', 18, [
+    ['changelog JUDO', true],
+    ['release notes JUDO', true],
+    ['changelog all', true],
+  ]);
+
+  // 6. cost-tracker
+  testSkill('../skills/cost-tracker/index', 'cost-tracker', 19, [
+    ['ai costs', true],
+    ['cost report', true],
+    ['cost breakdown', true],
+    ['cost optimize', true],
+  ]);
+
+  // 7. workflow
+  testSkill('../skills/workflow/index', 'workflow', 21, [
+    ['workflow list', true],
+    ['workflows', true],
+    ['workflow status', true],
+  ]);
+
+  // 8. pr-watcher
+  testSkill('../skills/pr-watcher/index', 'pr-watcher', 23, [
+    ['watch prs JUDO', true],
+    ['pr watch status', true],
+    ['watched repos', true],
+  ]);
+
+  // 9. knowledge-base
+  testSkill('../skills/knowledge-base/index', 'knowledge-base', 16, [
+    ['kb save We chose NextAuth for JUDO', true],
+    ['kb search authentication', true],
+    ['kb list', true],
+    ['kb stats', true],
+  ]);
+
+  // 10. feature-flags
+  testSkill('../skills/feature-flags/index', 'feature-flags', 17, [
+    ['flag list JUDO', true],
+    ['feature flags JUDO', true],
+    ['flags all', true],
+    ['flag history JUDO', true],
+  ]);
+}
+
+// ============================================================================
 // MAIN
 // ============================================================================
 
@@ -1482,6 +1586,9 @@ async function main() {
 
     // Design Quality Framework tests
     testDesignQualityFramework();
+
+    // New Skills tests (10 skills)
+    testNewSkills();
 
   } catch (err) {
     console.error(`\n${C.red}Unexpected error:${C.reset}`, err);
