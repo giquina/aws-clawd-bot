@@ -140,11 +140,19 @@ class PlanExecutor {
           .map(([path, content]) => `--- ${path} ---\n${content.substring(0, 3000)}`)
           .join('\n\n');
 
+        // Inject quality standards into code generation prompts
+        let qualityHint = '';
+        try {
+          const dqf = require('./design-quality-framework');
+          qualityHint = dqf.getQualityPromptInjection({ taskType: 'coding', repoName: targetRepo });
+        } catch (e) { /* framework not available */ }
+
         const codePrompt = op.action === 'edit'
           ? `Edit this file according to the instructions. Return ONLY the complete new file content.
 
 FILE: ${op.path}
 INSTRUCTIONS: ${op.instructions || transcript}
+${qualityHint ? `\nQUALITY STANDARDS: ${qualityHint}` : ''}
 
 REFERENCE FILES:
 ${referenceContext || 'None'}
@@ -162,6 +170,7 @@ Return ONLY the complete edited file content, no explanations or markdown fences
 
 FILE TO CREATE: ${op.path}
 INSTRUCTIONS: ${op.instructions || transcript}
+${qualityHint ? `\nQUALITY STANDARDS: ${qualityHint}` : ''}
 
 REFERENCE FILES:
 ${referenceContext || 'None'}
@@ -193,6 +202,23 @@ Return ONLY the complete file content, no explanations or markdown fences.`;
       if (fileChanges.length === 0) {
         return { success: false, message: 'No file changes to make.' };
       }
+
+      // Validate generated code quality before committing
+      try {
+        const dqf = require('./design-quality-framework');
+        const validation = dqf.validateGeneratedCode(fileChanges, { repoName: targetRepo });
+        if (validation.issues.length > 0) {
+          console.log(`[PlanExecutor] Quality issues found: ${validation.issues.length}, score: ${validation.score}`);
+        }
+        if (validation.warnings.length > 0) {
+          console.log(`[PlanExecutor] Quality warnings: ${validation.warnings.join(', ')}`);
+        }
+        // Record metric for tracking
+        dqf.recordMetric('codeQuality', validation.score, { repo: targetRepo, taskType: 'plan-execution' });
+      } catch (e) {
+        // Quality framework not critical — continue without it
+      }
+
       await updateTask(2, 'done');
 
       // Step 5: Create branch

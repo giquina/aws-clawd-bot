@@ -56,7 +56,8 @@
     "wellness",
     "goals",
     "superdesign",
-    "nl-tuning"
+    "nl-tuning",
+    "design-review"
   ],
   "disabled": [],
   "config": {
@@ -238,6 +239,11 @@
       "requiresConfirmation": false,
       "cliVersion": "latest"
     },
-    "nl-tuning": {}
+    "nl-tuning": {},
+    "design-review": {
+      "maxFilesToReview": 10,
+      "reviewHistorySize": 20,
+      "aiModel": "claude-sonnet-4-20250514"
+    }
   }
 }

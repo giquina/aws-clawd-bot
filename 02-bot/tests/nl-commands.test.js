@@ -1272,6 +1272,164 @@ function printSummary() {
 }
 
 // ============================================================================
+// DESIGN QUALITY FRAMEWORK TESTS
+// ============================================================================
+
+function testDesignQualityFramework() {
+  section('Design Quality Framework');
+
+  const dqf = require('../lib/design-quality-framework');
+
+  // --- loadStandards ---
+  const standards = dqf.loadStandards();
+  test('DQF', 'loadStandards returns object', standards && typeof standards === 'object');
+  test('DQF', 'loadStandards has version', standards.version === '1.0');
+  test('DQF', 'loadStandards caches result', dqf.loadStandards() === standards);
+
+  // --- getQualityPromptInjection ---
+  const codingPrompt = dqf.getQualityPromptInjection({ taskType: 'coding' });
+  test('DQF', 'getQualityPromptInjection returns string', typeof codingPrompt === 'string' && codingPrompt.length > 0);
+  test('DQF', 'getQualityPromptInjection under 500 chars', codingPrompt.length <= 500);
+  test('DQF', 'getQualityPromptInjection starts with [Quality]', codingPrompt.startsWith('[Quality]'));
+
+  const designPrompt = dqf.getQualityPromptInjection({ taskType: 'design' });
+  test('DQF', 'design prompt differs from coding prompt', designPrompt !== codingPrompt);
+
+  const reactPrompt = dqf.getQualityPromptInjection({ taskType: 'coding', projectType: 'react' });
+  test('DQF', 'react project adds stack hint', reactPrompt.includes('component'));
+
+  const emptyPrompt = dqf.getQualityPromptInjection({});
+  test('DQF', 'empty options returns fallback', typeof emptyPrompt === 'string' && emptyPrompt.length > 0);
+
+  // --- validateGeneratedCode ---
+  const goodFiles = [
+    { path: 'src/index.js', content: 'const express = require("express");\nconst app = express();\napp.listen(3000);\n' },
+    { path: 'src/utils.js', content: 'function add(a, b) { return a + b; }\nmodule.exports = { add };\n' }
+  ];
+  const goodResult = dqf.validateGeneratedCode(goodFiles, { repoName: 'test-repo' });
+  test('DQF', 'validateGeneratedCode returns object', goodResult && typeof goodResult === 'object');
+  test('DQF', 'good code passes validation', goodResult.passed === true);
+  test('DQF', 'good code has score > 60', goodResult.score > 60);
+  test('DQF', 'good code has no issues', goodResult.issues.length === 0);
+
+  // Test security detection
+  const secretFiles = [
+    { path: 'config.js', content: 'const api_key = "sk-live-abcdefghijklmnopqrstuvwxyz1234567890";\n' }
+  ];
+  const secretResult = dqf.validateGeneratedCode(secretFiles, {});
+  test('DQF', 'detects hardcoded secrets', secretResult.issues.length > 0);
+  test('DQF', 'secret detection lowers score', secretResult.score < 100);
+
+  // Test invalid JSON
+  const badJson = [{ path: 'data.json', content: '{ broken json!' }];
+  const jsonResult = dqf.validateGeneratedCode(badJson, {});
+  test('DQF', 'detects invalid JSON', jsonResult.issues.some(i => i.includes('Invalid JSON')));
+
+  // Test truncated code
+  const truncated = [{ path: 'app.js', content: 'function main() {\n// TODO: implement\n// TODO: implement\n// TODO: implement\n// TODO: implement\n// TODO: implement\n' }];
+  const truncResult = dqf.validateGeneratedCode(truncated, {});
+  test('DQF', 'detects truncated/placeholder code', truncResult.issues.length > 0 || truncResult.warnings.length > 0);
+
+  // Test empty files array
+  const emptyResult = dqf.validateGeneratedCode([], {});
+  test('DQF', 'empty files fails validation', emptyResult.passed === false);
+
+  // --- scoreDesign ---
+  const scores = dqf.scoreDesign({
+    aesthetics: 85, usability: 90, accessibility: 80,
+    responsiveness: 75, brandConsistency: 70, codeQuality: 88
+  });
+  test('DQF', 'scoreDesign returns overallScore', typeof scores.overallScore === 'number' && scores.overallScore > 0);
+  test('DQF', 'scoreDesign returns grade', typeof scores.grade === 'string' && scores.grade.length > 0);
+  test('DQF', 'scoreDesign returns breakdown', Object.keys(scores.breakdown).length === 6);
+  test('DQF', 'scoreDesign grade reflects score', scores.grade.includes('B') || scores.grade.includes('A'));
+
+  // Test low scores trigger recommendations
+  const lowScores = dqf.scoreDesign({
+    aesthetics: 40, usability: 50, accessibility: 30,
+    responsiveness: 45, brandConsistency: 35, codeQuality: 55
+  });
+  test('DQF', 'low scores generate recommendations', lowScores.recommendations.length > 0);
+  test('DQF', 'low scores produce F or D grade', lowScores.grade.includes('F') || lowScores.grade.includes('D'));
+
+  // Test empty criteria
+  const emptyScores = dqf.scoreDesign({});
+  test('DQF', 'empty criteria returns zero', emptyScores.overallScore === 0);
+
+  // --- generateQualityReport ---
+  const report = dqf.generateQualityReport('TestProject', {
+    validation: { passed: true, score: 85, issues: [], warnings: ['Minor: test warning'] },
+    designScore: scores,
+    taskDescription: 'Unit test'
+  });
+  test('DQF', 'generateQualityReport returns string', typeof report === 'string');
+  test('DQF', 'report includes project name', report.includes('TestProject'));
+  test('DQF', 'report includes scores', report.includes('/100'));
+  test('DQF', 'report includes timestamp', /\d{4}-\d{2}-\d{2}/.test(report));
+
+  // --- recordMetric + getMetrics ---
+  const entry = dqf.recordMetric('codeQuality', 85, { repo: 'test-repo', taskType: 'test' });
+  test('DQF', 'recordMetric returns entry', entry !== null && entry.category === 'codeQuality');
+  test('DQF', 'recordMetric clamps score', dqf.recordMetric('usability', 150, {}).score === 100);
+  test('DQF', 'recordMetric rejects invalid category', dqf.recordMetric('invalid', 50, {}) === null);
+
+  // Add a few more for metrics testing
+  dqf.recordMetric('usability', 70, { repo: 'test-repo' });
+  dqf.recordMetric('accessibility', 90, { repo: 'test-repo' });
+  dqf.recordMetric('codeQuality', 80, { repo: 'other-repo' });
+
+  const metrics = dqf.getMetrics({ repo: 'test-repo' });
+  test('DQF', 'getMetrics returns averageScore', typeof metrics.averageScore === 'number');
+  test('DQF', 'getMetrics returns trend', ['improving', 'stable', 'declining', 'no data'].includes(metrics.trend));
+  test('DQF', 'getMetrics filters by repo', metrics.recentScores.length >= 1);
+
+  const allMetrics = dqf.getMetrics({});
+  test('DQF', 'getMetrics without filters returns all', allMetrics.recentScores.length >= 4);
+
+  // --- getGovernanceEvidence ---
+  const evidence = dqf.getGovernanceEvidence('test-repo');
+  test('DQF', 'getGovernanceEvidence returns object', evidence && typeof evidence === 'object');
+  test('DQF', 'evidence includes repo name', evidence.repo === 'test-repo');
+  test('DQF', 'evidence includes period', typeof evidence.period === 'string');
+  test('DQF', 'evidence includes compliance status', ['compliant', 'needs-improvement', 'non-compliant', 'unknown'].includes(evidence.compliance));
+  test('DQF', 'evidence includes summary string', typeof evidence.summary === 'string' && evidence.summary.length > 0);
+
+  // --- Design Review Skill ---
+  section('Design Review Skill');
+
+  const DesignReviewSkill = require('../skills/design-review/index');
+  const skill = new DesignReviewSkill();
+  test('DesignReview', 'skill has correct name', skill.name === 'design-review');
+  test('DesignReview', 'skill has priority', typeof skill.priority === 'number' && skill.priority > 0);
+  test('DesignReview', 'skill has commands array', Array.isArray(skill.commands) && skill.commands.length >= 4);
+
+  // Test command pattern matching
+  const reviewPattern = skill.commands.find(c => c.pattern.test('review design JUDO'));
+  test('DesignReview', '"review design JUDO" matches command', !!reviewPattern);
+
+  const designReviewPattern = skill.commands.find(c => c.pattern.test('design review'));
+  test('DesignReview', '"design review" matches command', !!designReviewPattern);
+
+  const qualityReport = skill.commands.find(c => c.pattern.test('quality report'));
+  test('DesignReview', '"quality report" matches command', !!qualityReport);
+
+  const qualityScore = skill.commands.find(c => c.pattern.test('quality score'));
+  test('DesignReview', '"quality score" matches command', !!qualityScore);
+
+  const qualityStandards = skill.commands.find(c => c.pattern.test('quality standards'));
+  test('DesignReview', '"quality standards" matches command', !!qualityStandards);
+
+  const designStandards = skill.commands.find(c => c.pattern.test('design standards'));
+  test('DesignReview', '"design standards" matches command', !!designStandards);
+
+  const reviewPR = skill.commands.find(c => c.pattern.test('review PR 42'));
+  test('DesignReview', '"review PR 42" matches command', !!reviewPR);
+
+  const reviewPullRequest = skill.commands.find(c => c.pattern.test('review pull request 123'));
+  test('DesignReview', '"review pull request 123" matches command', !!reviewPullRequest);
+}
+
+// ============================================================================
 // MAIN
 // ============================================================================
 
@@ -1321,6 +1479,9 @@ async function main() {
 
     // Telegram Sanitizer tests
     testTelegramSanitizer();
+
+    // Design Quality Framework tests
+    testDesignQualityFramework();
 
   } catch (err) {
     console.error(`\n${C.red}Unexpected error:${C.reset}`, err);

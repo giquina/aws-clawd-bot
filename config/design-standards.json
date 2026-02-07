@@ -1,0 +1,1231 @@
+{
+  "version": "1.0",
+  "description": "Design Quality Framework - Ensures all AI-generated work meets premium quality standards across all repos",
+  "lastUpdated": "2026-02-07",
+  "appliesTo": "all-repos",
+
+  "qualityCriteria": {
+    "aesthetics": {
+      "weight": 8,
+      "minScore": 75,
+      "description": "Visual design quality and polish",
+      "checks": [
+        {
+          "id": "aes-01",
+          "name": "Modern design language",
+          "description": "Uses contemporary design patterns: clean lines, ample whitespace, flat or subtle depth cues",
+          "measurement": "manual-review"
+        },
+        {
+          "id": "aes-02",
+          "name": "Consistent spacing",
+          "description": "All spacing follows the defined spacing scale (4px base unit). No arbitrary pixel values.",
+          "measurement": "automated-lint"
+        },
+        {
+          "id": "aes-03",
+          "name": "Typography hierarchy",
+          "description": "Clear visual hierarchy with max 3 font weights per page, consistent heading sizes following type scale",
+          "measurement": "manual-review"
+        },
+        {
+          "id": "aes-04",
+          "name": "Color harmony",
+          "description": "All colors from approved palette. Max 5 distinct hues per view. Sufficient contrast between adjacent elements.",
+          "measurement": "automated-lint"
+        },
+        {
+          "id": "aes-05",
+          "name": "Visual balance",
+          "description": "Content distributed evenly across viewport. No heavy/empty imbalances. Grid alignment respected.",
+          "measurement": "manual-review"
+        },
+        {
+          "id": "aes-06",
+          "name": "Micro-interactions",
+          "description": "Hover states, transitions (200-300ms), and animations are smooth and purposeful. No jarring state changes.",
+          "measurement": "manual-review"
+        },
+        {
+          "id": "aes-07",
+          "name": "Icon consistency",
+          "description": "Icons from a single icon set (Lucide, Heroicons, or project-standard). Consistent size and stroke width.",
+          "measurement": "automated-lint"
+        }
+      ]
+    },
+
+    "usability": {
+      "weight": 9,
+      "minScore": 80,
+      "description": "User experience and interaction quality",
+      "checks": [
+        {
+          "id": "usa-01",
+          "name": "Intuitive navigation",
+          "description": "Primary actions reachable in 2 clicks or fewer. Navigation labels are clear and unambiguous.",
+          "measurement": "manual-review"
+        },
+        {
+          "id": "usa-02",
+          "name": "Clear CTAs",
+          "description": "One primary CTA per view, visually prominent. Secondary actions visually subordinate. Button labels are action verbs.",
+          "measurement": "manual-review"
+        },
+        {
+          "id": "usa-03",
+          "name": "Action feedback",
+          "description": "Every user action produces visible feedback within 100ms. Success/error states clearly communicated.",
+          "measurement": "automated-test"
+        },
+        {
+          "id": "usa-04",
+          "name": "Loading states",
+          "description": "All async operations show skeleton loaders or spinners. No blank screens during data fetch.",
+          "measurement": "automated-test"
+        },
+        {
+          "id": "usa-05",
+          "name": "Error states",
+          "description": "All error states have user-friendly messages, recovery actions, and retry options where applicable.",
+          "measurement": "automated-test"
+        },
+        {
+          "id": "usa-06",
+          "name": "Empty states",
+          "description": "Empty lists/views show helpful illustrations or guidance, not blank space. Include primary action CTA.",
+          "measurement": "manual-review"
+        },
+        {
+          "id": "usa-07",
+          "name": "Form validation",
+          "description": "Inline validation on blur. Error messages next to the field. Submit button disabled until form is valid.",
+          "measurement": "automated-test"
+        },
+        {
+          "id": "usa-08",
+          "name": "Confirmation for destructive actions",
+          "description": "Delete, cancel, or irreversible actions require explicit confirmation dialog.",
+          "measurement": "automated-test"
+        }
+      ]
+    },
+
+    "accessibility": {
+      "weight": 10,
+      "minScore": 85,
+      "description": "WCAG 2.1 AA compliance and inclusive design",
+      "checks": [
+        {
+          "id": "acc-01",
+          "name": "Semantic HTML",
+          "description": "Correct use of landmarks (header, nav, main, footer), headings (h1-h6 in order), lists, and form labels.",
+          "measurement": "automated-audit"
+        },
+        {
+          "id": "acc-02",
+          "name": "ARIA labels",
+          "description": "All interactive elements have accessible names. Custom components use appropriate ARIA roles and states.",
+          "measurement": "automated-audit"
+        },
+        {
+          "id": "acc-03",
+          "name": "Keyboard navigation",
+          "description": "All interactive elements focusable via Tab. Visible focus indicators. No keyboard traps. Escape closes modals.",
+          "measurement": "automated-test"
+        },
+        {
+          "id": "acc-04",
+          "name": "Color contrast",
+          "description": "Text contrast ratio 4.5:1 minimum (AA). Large text (18px+) contrast ratio 3:1 minimum. UI controls 3:1 minimum.",
+          "measurement": "automated-audit"
+        },
+        {
+          "id": "acc-05",
+          "name": "Alt text",
+          "description": "All images have descriptive alt text. Decorative images use alt=\"\". Complex images have long descriptions.",
+          "measurement": "automated-audit"
+        },
+        {
+          "id": "acc-06",
+          "name": "Screen reader support",
+          "description": "Dynamic content announced via aria-live regions. Status messages use role=status. Page title updates on route change.",
+          "measurement": "manual-review"
+        },
+        {
+          "id": "acc-07",
+          "name": "Reduced motion support",
+          "description": "Respects prefers-reduced-motion media query. Essential animations have static alternatives.",
+          "measurement": "automated-audit"
+        },
+        {
+          "id": "acc-08",
+          "name": "Touch target size",
+          "description": "All interactive elements have minimum 44x44px touch target on mobile. Adequate spacing between targets.",
+          "measurement": "automated-audit"
+        }
+      ]
+    },
+
+    "responsiveness": {
+      "weight": 9,
+      "minScore": 80,
+      "description": "Responsive design and cross-device compatibility",
+      "checks": [
+        {
+          "id": "res-01",
+          "name": "Mobile-first approach",
+          "description": "Base styles target mobile. Larger breakpoints use min-width media queries. No desktop-first overrides.",
+          "measurement": "automated-lint"
+        },
+        {
+          "id": "res-02",
+          "name": "Fluid grids",
+          "description": "Layouts use CSS Grid or Flexbox with relative units. No fixed-width containers except max-width wrappers.",
+          "measurement": "automated-lint"
+        },
+        {
+          "id": "res-03",
+          "name": "Breakpoint coverage",
+          "description": "Tested at all standard breakpoints: 320px (small mobile), 768px (tablet), 1024px (desktop), 1440px (large desktop).",
+          "breakpoints": {
+            "sm": 320,
+            "md": 768,
+            "lg": 1024,
+            "xl": 1440
+          },
+          "measurement": "automated-test"
+        },
+        {
+          "id": "res-04",
+          "name": "Touch targets",
+          "description": "All interactive elements have minimum 44x44px touch area on screens below 1024px.",
+          "minTargetSize": 44,
+          "measurement": "automated-audit"
+        },
+        {
+          "id": "res-05",
+          "name": "No horizontal scroll",
+          "description": "No horizontal overflow at any breakpoint. Images and tables use responsive patterns (object-fit, overflow-x: auto).",
+          "measurement": "automated-test"
+        },
+        {
+          "id": "res-06",
+          "name": "Responsive images",
+          "description": "Images use srcset/sizes or next/image. Appropriate formats (WebP with fallback). Lazy loading for below-fold images.",
+          "measurement": "automated-audit"
+        },
+        {
+          "id": "res-07",
+          "name": "Responsive typography",
+          "description": "Font sizes use clamp() or fluid type scale. Minimum 16px body text on mobile. Line lengths 45-75 characters.",
+          "measurement": "automated-lint"
+        }
+      ]
+    },
+
+    "brandConsistency": {
+      "weight": 7,
+      "minScore": 70,
+      "description": "Adherence to brand guidelines and design system",
+      "checks": [
+        {
+          "id": "bra-01",
+          "name": "Design tokens",
+          "description": "All visual properties (colors, spacing, shadows, radii) use design tokens. No hardcoded values in component styles.",
+          "measurement": "automated-lint"
+        },
+        {
+          "id": "bra-02",
+          "name": "Typography scale",
+          "description": "Font sizes follow modular scale (1.25 ratio). Defined steps: xs(12px), sm(14px), base(16px), lg(18px), xl(20px), 2xl(24px), 3xl(30px), 4xl(36px).",
+          "scale": {
+            "ratio": 1.25,
+            "base": 16,
+            "steps": {
+              "xs": 12,
+              "sm": 14,
+              "base": 16,
+              "lg": 18,
+              "xl": 20,
+              "2xl": 24,
+              "3xl": 30,
+              "4xl": 36
+            }
+          },
+          "measurement": "automated-lint"
+        },
+        {
+          "id": "bra-03",
+          "name": "Color palette",
+          "description": "Primary, secondary, accent, neutral, success, warning, error, info colors defined with 50-950 shade ranges.",
+          "semanticColors": {
+            "primary": "Brand identity color, used for CTAs and key UI elements",
+            "secondary": "Supporting brand color, used for secondary actions",
+            "accent": "Highlight color for badges, tags, and emphasis",
+            "neutral": "Grays for text, borders, backgrounds (50-950 scale)",
+            "success": "Green family for positive states and confirmations",
+            "warning": "Amber family for caution and pending states",
+            "error": "Red family for errors and destructive actions",
+            "info": "Blue family for informational messages"
+          },
+          "measurement": "automated-lint"
+        },
+        {
+          "id": "bra-04",
+          "name": "Spacing scale",
+          "description": "All spacing uses 4px base unit multiples: 0, 1(4px), 2(8px), 3(12px), 4(16px), 5(20px), 6(24px), 8(32px), 10(40px), 12(48px), 16(64px).",
+          "baseUnit": 4,
+          "measurement": "automated-lint"
+        },
+        {
+          "id": "bra-05",
+          "name": "Component library",
+          "description": "Reusable components for buttons, inputs, cards, modals, tables, alerts, badges, avatars, dropdowns, tooltips.",
+          "requiredComponents": [
+            "Button",
+            "Input",
+            "Select",
+            "Checkbox",
+            "Card",
+            "Modal",
+            "Table",
+            "Alert",
+            "Badge",
+            "Avatar",
+            "Dropdown",
+            "Tooltip",
+            "Tabs",
+            "Pagination",
+            "Breadcrumb",
+            "Toast"
+          ],
+          "measurement": "manual-review"
+        },
+        {
+          "id": "bra-06",
+          "name": "Border radius consistency",
+          "description": "Border radii follow scale: none(0), sm(4px), md(8px), lg(12px), xl(16px), full(9999px). No arbitrary values.",
+          "measurement": "automated-lint"
+        }
+      ]
+    },
+
+    "codeQuality": {
+      "weight": 10,
+      "minScore": 85,
+      "description": "Code craftsmanship and maintainability",
+      "checks": [
+        {
+          "id": "cod-01",
+          "name": "ESLint strict mode",
+          "description": "Zero ESLint errors. Warnings resolved or explicitly suppressed with justification comment.",
+          "measurement": "automated-lint"
+        },
+        {
+          "id": "cod-02",
+          "name": "TypeScript strict mode",
+          "description": "strict: true in tsconfig. No any types without explicit justification. Prefer unknown over any.",
+          "tsconfig": {
+            "strict": true,
+            "noImplicitAny": true,
+            "strictNullChecks": true,
+            "noUnusedLocals": true,
+            "noUnusedParameters": true
+          },
+          "measurement": "automated-lint"
+        },
+        {
+          "id": "cod-03",
+          "name": "JSDoc comments",
+          "description": "All exported functions, classes, and interfaces have JSDoc comments with @param, @returns, and @example.",
+          "measurement": "automated-lint"
+        },
+        {
+          "id": "cod-04",
+          "name": "Function length",
+          "description": "Functions under 20 lines. Complex logic extracted into named helper functions. Single responsibility per function.",
+          "maxLines": 20,
+          "measurement": "automated-lint"
+        },
+        {
+          "id": "cod-05",
+          "name": "DRY principle",
+          "description": "No code blocks duplicated more than twice. Shared logic extracted to utility functions or custom hooks.",
+          "maxDuplication": 2,
+          "measurement": "automated-audit"
+        },
+        {
+          "id": "cod-06",
+          "name": "SOLID principles",
+          "description": "Single responsibility classes. Open for extension. Liskov substitution. Interface segregation. Dependency inversion.",
+          "measurement": "manual-review"
+        },
+        {
+          "id": "cod-07",
+          "name": "Test coverage",
+          "description": "Minimum 80% line coverage. Critical paths 100%. All edge cases have dedicated tests.",
+          "minCoverage": {
+            "lines": 80,
+            "branches": 75,
+            "functions": 85,
+            "statements": 80
+          },
+          "measurement": "automated-audit"
+        },
+        {
+          "id": "cod-08",
+          "name": "Naming conventions",
+          "description": "camelCase for variables/functions, PascalCase for classes/components/types, UPPER_SNAKE for constants, kebab-case for files.",
+          "conventions": {
+            "variables": "camelCase",
+            "functions": "camelCase",
+            "classes": "PascalCase",
+            "components": "PascalCase",
+            "types": "PascalCase",
+            "interfaces": "PascalCase (no I prefix)",
+            "constants": "UPPER_SNAKE_CASE",
+            "files": "kebab-case",
+            "cssClasses": "kebab-case or BEM"
+          },
+          "measurement": "automated-lint"
+        },
+        {
+          "id": "cod-09",
+          "name": "Error handling",
+          "description": "All async operations wrapped in try-catch. Errors logged with context. User-facing errors are actionable.",
+          "measurement": "automated-lint"
+        },
+        {
+          "id": "cod-10",
+          "name": "No console.log in production",
+          "description": "Use structured logger (winston, pino). console.log only in development. No committed debug statements.",
+          "measurement": "automated-lint"
+        }
+      ]
+    }
+  },
+
+  "verificationRules": {
+    "automated": [
+      {
+        "id": "auto-01",
+        "name": "Syntax validation",
+        "tool": "tsc --noEmit",
+        "runsOn": "pre-commit",
+        "blocking": true,
+        "description": "TypeScript compilation check without emitting files"
+      },
+      {
+        "id": "auto-02",
+        "name": "Linting",
+        "tool": "eslint --max-warnings 0",
+        "runsOn": "pre-commit",
+        "blocking": true,
+        "description": "ESLint with zero warnings tolerance"
+      },
+      {
+        "id": "auto-03",
+        "name": "Type checking",
+        "tool": "tsc --strict --noEmit",
+        "runsOn": "pre-commit",
+        "blocking": true,
+        "description": "Strict TypeScript type checking"
+      },
+      {
+        "id": "auto-04",
+        "name": "Accessibility audit",
+        "tool": "axe-core",
+        "runsOn": "ci-pipeline",
+        "blocking": true,
+        "description": "Automated WCAG 2.1 AA compliance scan on rendered pages"
+      },
+      {
+        "id": "auto-05",
+        "name": "Performance budget",
+        "tool": "lighthouse-ci",
+        "runsOn": "ci-pipeline",
+        "blocking": false,
+        "description": "Lighthouse CI performance budget assertions"
+      },
+      {
+        "id": "auto-06",
+        "name": "Security scan",
+        "tool": "npm audit --audit-level=high",
+        "runsOn": "ci-pipeline",
+        "blocking": true,
+        "description": "Dependency vulnerability scan at high severity threshold"
+      },
+      {
+        "id": "auto-07",
+        "name": "Dependency audit",
+        "tool": "depcheck",
+        "runsOn": "weekly",
+        "blocking": false,
+        "description": "Detect unused dependencies and missing declarations"
+      },
+      {
+        "id": "auto-08",
+        "name": "Bundle size check",
+        "tool": "size-limit",
+        "runsOn": "ci-pipeline",
+        "blocking": true,
+        "description": "Enforce maximum bundle size budgets"
+      },
+      {
+        "id": "auto-09",
+        "name": "Test suite",
+        "tool": "jest --coverage",
+        "runsOn": "pre-push",
+        "blocking": true,
+        "description": "Run full test suite with coverage reporting"
+      },
+      {
+        "id": "auto-10",
+        "name": "Dead code detection",
+        "tool": "ts-prune",
+        "runsOn": "weekly",
+        "blocking": false,
+        "description": "Identify unused exports and dead code"
+      }
+    ],
+
+    "manual": {
+      "triggerConditions": [
+        {
+          "id": "man-01",
+          "trigger": "New project creation",
+          "description": "Any new repository or project scaffold requires full design review before first deploy",
+          "reviewer": "lead-developer",
+          "sla": "48 hours"
+        },
+        {
+          "id": "man-02",
+          "trigger": "More than 5 files changed",
+          "description": "PRs touching 6+ files require architecture review to assess cross-cutting impact",
+          "reviewer": "team-member",
+          "sla": "24 hours"
+        },
+        {
+          "id": "man-03",
+          "trigger": "Security-sensitive code",
+          "description": "Changes to auth, encryption, API keys, permissions, or user data handling",
+          "reviewer": "lead-developer",
+          "sla": "24 hours"
+        },
+        {
+          "id": "man-04",
+          "trigger": "Public-facing UI changes",
+          "description": "Any change visible to end users on production domains",
+          "reviewer": "team-member",
+          "sla": "24 hours"
+        },
+        {
+          "id": "man-05",
+          "trigger": "Database schema changes",
+          "description": "Migrations, new tables, column modifications, or index changes",
+          "reviewer": "lead-developer",
+          "sla": "48 hours"
+        },
+        {
+          "id": "man-06",
+          "trigger": "API contract changes",
+          "description": "New endpoints, changed request/response shapes, or removed endpoints",
+          "reviewer": "team-member",
+          "sla": "24 hours"
+        },
+        {
+          "id": "man-07",
+          "trigger": "Third-party integration",
+          "description": "Adding new external service dependencies, SDKs, or API integrations",
+          "reviewer": "lead-developer",
+          "sla": "48 hours"
+        }
+      ]
+    },
+
+    "reviewChecklist": {
+      "design": [
+        "Layout follows approved wireframe or design spec",
+        "Typography hierarchy is clear and consistent",
+        "Color usage matches brand palette and semantic meanings",
+        "Spacing is consistent and follows the spacing scale",
+        "Interactive elements have visible hover, focus, and active states",
+        "Icons are consistent in style, size, and stroke weight",
+        "Empty, loading, and error states are designed and implemented"
+      ],
+      "code": [
+        "No TypeScript any types without justification",
+        "All exported functions have JSDoc comments",
+        "Error boundaries wrap major UI sections",
+        "API calls have proper error handling and retry logic",
+        "No hardcoded strings (use constants or i18n keys)",
+        "Components are properly memoized where needed",
+        "Side effects are cleaned up (event listeners, timers, subscriptions)"
+      ],
+      "accessibility": [
+        "Page has a single h1 and headings are in order",
+        "All images have meaningful alt text",
+        "Forms have associated labels (not just placeholders)",
+        "Focus order follows visual reading order",
+        "Color is not the sole indicator of state or meaning",
+        "Modal dialogs trap focus and return focus on close",
+        "Dynamic content updates are announced to screen readers"
+      ],
+      "performance": [
+        "Images are optimized and appropriately sized",
+        "No unnecessary re-renders (check React DevTools Profiler)",
+        "API calls are deduplicated and cached where appropriate",
+        "Large lists use virtualization",
+        "Code splitting is applied to route-level components",
+        "Third-party scripts loaded async or deferred",
+        "No layout shifts from dynamically loaded content"
+      ],
+      "security": [
+        "User input is validated on both client and server",
+        "Output is sanitized to prevent XSS",
+        "No sensitive data in client-side code or logs",
+        "Authentication tokens stored securely (httpOnly cookies)",
+        "API endpoints enforce authorization checks",
+        "File uploads validated for type, size, and content",
+        "Rate limiting applied to public-facing endpoints"
+      ]
+    }
+  },
+
+  "performanceBudgets": {
+    "lighthouse": {
+      "performance": {
+        "min": 90,
+        "target": 95,
+        "description": "Overall performance score"
+      },
+      "accessibility": {
+        "min": 95,
+        "target": 100,
+        "description": "Accessibility score"
+      },
+      "bestPractices": {
+        "min": 90,
+        "target": 95,
+        "description": "Best practices score"
+      },
+      "seo": {
+        "min": 90,
+        "target": 100,
+        "description": "SEO score"
+      }
+    },
+    "bundleSize": {
+      "javascript": {
+        "maxGzipped": "50KB",
+        "maxRaw": "200KB",
+        "description": "Total JavaScript bundle size (excluding vendor chunks)"
+      },
+      "css": {
+        "maxGzipped": "30KB",
+        "maxRaw": "120KB",
+        "description": "Total CSS bundle size"
+      },
+      "images": {
+        "maxPerImage": "200KB",
+        "preferredFormats": ["webp", "avif"],
+        "fallbackFormat": "jpg",
+        "description": "Per-image size limit with modern format preference"
+      },
+      "fonts": {
+        "maxTotal": "100KB",
+        "maxPerFont": "50KB",
+        "strategy": "swap",
+        "description": "Total font payload with font-display: swap"
+      }
+    },
+    "coreWebVitals": {
+      "FCP": {
+        "good": 1500,
+        "needsImprovement": 2500,
+        "unit": "ms",
+        "description": "First Contentful Paint"
+      },
+      "LCP": {
+        "good": 2500,
+        "needsImprovement": 4000,
+        "unit": "ms",
+        "description": "Largest Contentful Paint"
+      },
+      "CLS": {
+        "good": 0.1,
+        "needsImprovement": 0.25,
+        "unit": "score",
+        "description": "Cumulative Layout Shift"
+      },
+      "FID": {
+        "good": 100,
+        "needsImprovement": 300,
+        "unit": "ms",
+        "description": "First Input Delay"
+      },
+      "INP": {
+        "good": 200,
+        "needsImprovement": 500,
+        "unit": "ms",
+        "description": "Interaction to Next Paint"
+      },
+      "TTFB": {
+        "good": 800,
+        "needsImprovement": 1800,
+        "unit": "ms",
+        "description": "Time to First Byte"
+      }
+    },
+    "serverPerformance": {
+      "apiResponseTime": {
+        "p50": 200,
+        "p95": 500,
+        "p99": 1000,
+        "unit": "ms",
+        "description": "API endpoint response time percentiles"
+      },
+      "uptime": {
+        "target": 99.9,
+        "unit": "percent",
+        "description": "Service availability target"
+      }
+    }
+  },
+
+  "securityStandards": {
+    "mandatory": [
+      {
+        "id": "sec-01",
+        "name": "No hardcoded secrets",
+        "description": "API keys, tokens, passwords, and connection strings must be in environment variables. Use lib/encryption.js for at-rest encryption.",
+        "severity": "critical",
+        "detection": "automated-scan",
+        "patterns": ["password\\s*=\\s*['\"]", "api_key\\s*=\\s*['\"]", "secret\\s*=\\s*['\"]", "token\\s*=\\s*['\"](?!\\{)"]
+      },
+      {
+        "id": "sec-02",
+        "name": "Input validation",
+        "description": "All user input validated for type, length, format, and range. Use allowlists over denylists. Validate on server even if validated on client.",
+        "severity": "critical",
+        "detection": "code-review"
+      },
+      {
+        "id": "sec-03",
+        "name": "Output sanitization",
+        "description": "All dynamic content escaped before rendering. Use framework's built-in escaping (React JSX, template literals). Never use dangerouslySetInnerHTML without DOMPurify.",
+        "severity": "critical",
+        "detection": "automated-lint"
+      },
+      {
+        "id": "sec-04",
+        "name": "HTTPS only",
+        "description": "All external requests over HTTPS. HSTS header with max-age >= 31536000. No mixed content.",
+        "severity": "critical",
+        "detection": "automated-scan"
+      },
+      {
+        "id": "sec-05",
+        "name": "CSP headers",
+        "description": "Content-Security-Policy header set. No unsafe-inline or unsafe-eval in production. Script nonces for inline scripts.",
+        "severity": "high",
+        "detection": "automated-scan",
+        "recommendedPolicy": "default-src 'self'; script-src 'self' 'nonce-{random}'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https://api.anthropic.com https://api.groq.com"
+      },
+      {
+        "id": "sec-06",
+        "name": "XSS prevention",
+        "description": "No innerHTML with user data. React auto-escapes JSX. Server-side templates use auto-escaping. URL parameters validated before use.",
+        "severity": "critical",
+        "detection": "automated-lint"
+      },
+      {
+        "id": "sec-07",
+        "name": "SQL injection prevention",
+        "description": "All database queries use parameterized statements or ORM. Never string-concatenate SQL. better-sqlite3 uses ? placeholders.",
+        "severity": "critical",
+        "detection": "automated-lint"
+      },
+      {
+        "id": "sec-08",
+        "name": "CSRF protection",
+        "description": "State-changing endpoints require CSRF tokens or use SameSite=Strict cookies. API endpoints use bearer tokens.",
+        "severity": "high",
+        "detection": "code-review"
+      },
+      {
+        "id": "sec-09",
+        "name": "Dependency security",
+        "description": "No dependencies with known critical/high vulnerabilities. npm audit run weekly. Dependabot or Renovate enabled.",
+        "severity": "high",
+        "detection": "automated-scan"
+      },
+      {
+        "id": "sec-10",
+        "name": "Authentication security",
+        "description": "Passwords hashed with bcrypt (cost >= 12). Sessions expire after 24 hours of inactivity. Account lockout after 5 failed attempts.",
+        "severity": "critical",
+        "detection": "code-review"
+      },
+      {
+        "id": "sec-11",
+        "name": "Rate limiting",
+        "description": "All public endpoints rate-limited. Login: 5 attempts/15min. API: 100 requests/min. File upload: 10/hour.",
+        "severity": "high",
+        "detection": "code-review",
+        "limits": {
+          "login": "5 per 15 minutes per IP",
+          "api": "100 per minute per token",
+          "fileUpload": "10 per hour per user",
+          "webhooks": "30 per minute per source"
+        }
+      },
+      {
+        "id": "sec-12",
+        "name": "Logging and monitoring",
+        "description": "Log authentication events, authorization failures, input validation failures, and server errors. Never log passwords or tokens.",
+        "severity": "high",
+        "detection": "code-review"
+      }
+    ],
+    "securityHeaders": {
+      "required": {
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "X-XSS-Protection": "0",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
+      }
+    }
+  },
+
+  "governanceIntegration": {
+    "companies": ["GMH", "GACC", "GCAP", "GQCARS", "GSPV"],
+    "description": "Giquina Group compliance requirements for all AI-generated and human-generated work",
+
+    "evidenceRequirements": {
+      "codeChanges": {
+        "required": ["git commit hash", "author", "timestamp", "PR URL", "review approval"],
+        "description": "Every code change must be traceable via git history and PR records"
+      },
+      "deployments": {
+        "required": ["deployment ID", "environment", "timestamp", "deployer", "commit hash", "rollback plan"],
+        "description": "All production deployments logged with rollback capability"
+      },
+      "aiGeneratedWork": {
+        "required": ["session ID", "model used", "prompt summary", "output hash", "human review status"],
+        "description": "AI-generated code must be tracked and reviewed before production use"
+      },
+      "securityEvents": {
+        "required": ["event type", "timestamp", "source IP", "affected resource", "resolution"],
+        "retentionPeriod": "12 months",
+        "description": "Security events retained for audit and compliance review"
+      },
+      "dataAccess": {
+        "required": ["accessor identity", "data category", "access reason", "timestamp"],
+        "description": "Access to sensitive data logged for GDPR compliance"
+      }
+    },
+
+    "approvalThresholds": {
+      "noApprovalNeeded": {
+        "scope": "Bug fixes, typo corrections, dependency patches, documentation updates",
+        "maxFilesChanged": 3,
+        "conditions": ["No schema changes", "No API changes", "No security changes"]
+      },
+      "peerApproval": {
+        "scope": "Feature additions, refactoring, UI changes, non-breaking API additions",
+        "maxFilesChanged": 15,
+        "conditions": ["At least 1 reviewer approval", "All automated checks pass"]
+      },
+      "leadApproval": {
+        "scope": "Architecture changes, new integrations, security changes, schema migrations",
+        "conditions": ["Lead developer approval", "All automated checks pass", "Design review complete"]
+      },
+      "directorApproval": {
+        "scope": "New project creation, infrastructure changes, vendor additions, data processing changes",
+        "conditions": ["Director sign-off", "Cost impact assessment", "Security review", "Compliance review"]
+      }
+    },
+
+    "reportingSchedule": {
+      "daily": {
+        "name": "Daily Quality Digest",
+        "time": "08:00 UTC",
+        "channel": "telegram-hq",
+        "includes": [
+          "Deployments in last 24 hours",
+          "Failed automated checks",
+          "Open critical/high security findings",
+          "AI session summary (count, cost, outcomes)"
+        ]
+      },
+      "weekly": {
+        "name": "Weekly Quality Report",
+        "day": "Monday",
+        "time": "09:00 UTC",
+        "channel": "telegram-hq",
+        "includes": [
+          "Quality score trends per repo",
+          "Test coverage changes",
+          "Dependency audit results",
+          "Performance budget compliance",
+          "PR review turnaround times",
+          "Top 5 quality improvements needed"
+        ]
+      },
+      "monthly": {
+        "name": "Monthly Governance Review",
+        "day": 1,
+        "time": "10:00 UTC",
+        "channel": "email",
+        "includes": [
+          "Overall quality score across all repos",
+          "Security posture summary",
+          "Accessibility compliance status",
+          "AI usage and cost analysis",
+          "Improvement trend analysis",
+          "Compliance checklist status per company",
+          "Action items for next month"
+        ]
+      }
+    }
+  },
+
+  "continuousImprovement": {
+    "feedbackCategories": {
+      "design": {
+        "description": "Visual design, layout, branding feedback",
+        "examples": ["Color choice issues", "Layout alignment problems", "Inconsistent component styling"]
+      },
+      "performance": {
+        "description": "Speed, responsiveness, resource usage feedback",
+        "examples": ["Slow page loads", "High memory usage", "API timeout issues"]
+      },
+      "usability": {
+        "description": "User experience, navigation, clarity feedback",
+        "examples": ["Confusing navigation", "Unclear error messages", "Missing empty states"]
+      },
+      "accessibility": {
+        "description": "Inclusive design and WCAG compliance feedback",
+        "examples": ["Missing alt text", "Keyboard trap in modal", "Low contrast text"]
+      },
+      "security": {
+        "description": "Security vulnerabilities and hardening feedback",
+        "examples": ["Exposed API key", "Missing input validation", "Insecure cookie settings"]
+      }
+    },
+
+    "metricsTracked": {
+      "qualityScores": {
+        "description": "Per-repo quality scores across all 6 criteria categories",
+        "frequency": "per-PR",
+        "storage": "outcomes table in database.js"
+      },
+      "defectRates": {
+        "description": "Bugs found post-deploy per 1000 lines of code changed",
+        "frequency": "weekly",
+        "target": "< 2 defects per 1000 LOC"
+      },
+      "reviewPassRates": {
+        "description": "Percentage of PRs passing automated and manual review on first attempt",
+        "frequency": "weekly",
+        "target": "> 85% first-pass rate"
+      },
+      "improvementTrends": {
+        "description": "Month-over-month quality score improvement per repo",
+        "frequency": "monthly",
+        "target": "> 2% monthly improvement until targets met"
+      },
+      "meanTimeToResolve": {
+        "description": "Average time from quality issue detected to resolved",
+        "frequency": "weekly",
+        "targets": {
+          "critical": "4 hours",
+          "high": "24 hours",
+          "medium": "72 hours",
+          "low": "1 week"
+        }
+      },
+      "aiAccuracy": {
+        "description": "Percentage of AI-generated code passing review without changes",
+        "frequency": "weekly",
+        "target": "> 70% acceptance rate"
+      }
+    },
+
+    "bestPractices": [
+      {
+        "pattern": "Component composition",
+        "description": "Build complex UIs from small, single-purpose components. Prefer composition over inheritance.",
+        "applies": ["react", "nextjs"]
+      },
+      {
+        "pattern": "Custom hooks for logic",
+        "description": "Extract reusable stateful logic into custom hooks. Keep components focused on rendering.",
+        "applies": ["react", "nextjs"]
+      },
+      {
+        "pattern": "Server-first data fetching",
+        "description": "Fetch data on the server where possible. Use React Server Components or getServerSideProps.",
+        "applies": ["nextjs"]
+      },
+      {
+        "pattern": "Optimistic UI updates",
+        "description": "Update UI immediately on user action, reconcile with server response. Revert on failure.",
+        "applies": ["react", "nextjs"]
+      },
+      {
+        "pattern": "Error boundary strategy",
+        "description": "Wrap route segments and major features in error boundaries. Show recovery UI, not blank screens.",
+        "applies": ["react", "nextjs"]
+      },
+      {
+        "pattern": "API response envelope",
+        "description": "Consistent API response format: { success: boolean, data?: T, error?: { code, message, details } }",
+        "applies": ["express", "nextjs", "node"]
+      },
+      {
+        "pattern": "Middleware pipeline",
+        "description": "Chain middleware for auth, validation, rate limiting, logging. Keep each middleware single-purpose.",
+        "applies": ["express", "node"]
+      },
+      {
+        "pattern": "Repository pattern",
+        "description": "Abstract database access behind repository classes. Business logic never directly queries the database.",
+        "applies": ["express", "node", "nextjs"]
+      },
+      {
+        "pattern": "Feature flags",
+        "description": "Gate new features behind flags for gradual rollout. Remove flags once feature is stable.",
+        "applies": ["react", "nextjs", "express", "node"]
+      },
+      {
+        "pattern": "Structured logging",
+        "description": "Use structured JSON logs with correlation IDs, timestamps, and severity levels.",
+        "applies": ["express", "node", "nextjs"]
+      }
+    ],
+
+    "learningLoop": {
+      "dataCollection": {
+        "sources": ["PR review comments", "post-deploy defects", "user feedback via Telegram", "automated audit results", "Lighthouse reports"],
+        "storage": "outcome-tracker via lib/outcome-tracker.js"
+      },
+      "analysis": {
+        "frequency": "weekly",
+        "method": "Aggregate feedback by category. Identify recurring patterns. Rank by frequency and severity.",
+        "owner": "ClawdBot morning-brief skill"
+      },
+      "standardsUpdate": {
+        "frequency": "monthly",
+        "process": "Review analysis results. Update checks, thresholds, or best practices. Version bump design-standards.json.",
+        "requiresApproval": true
+      },
+      "teamCommunication": {
+        "method": "Weekly quality digest via Telegram HQ. Monthly detailed report. Standards changes announced in all repo groups.",
+        "channel": "telegram-hq"
+      }
+    }
+  },
+
+  "projectDefaults": {
+    "react": {
+      "name": "React + Vite + Tailwind",
+      "description": "Single-page application standards",
+      "scaffold": {
+        "tool": "npm create vite@latest -- --template react-ts",
+        "postSetup": ["npm install tailwindcss @tailwindcss/forms @tailwindcss/typography postcss autoprefixer", "npx tailwindcss init -p"]
+      },
+      "structure": {
+        "src/components/": "Reusable UI components (PascalCase directories)",
+        "src/components/ui/": "Base design system components (Button, Input, Card)",
+        "src/hooks/": "Custom React hooks (useAuth, useFetch, useDebounce)",
+        "src/pages/": "Route-level page components",
+        "src/lib/": "Utility functions and helpers",
+        "src/types/": "TypeScript type definitions and interfaces",
+        "src/styles/": "Global styles, Tailwind config, design tokens",
+        "src/context/": "React context providers",
+        "src/services/": "API client and external service integrations",
+        "tests/": "Test files mirroring src/ structure"
+      },
+      "dependencies": {
+        "required": ["react", "react-dom", "react-router-dom", "tailwindcss"],
+        "recommended": ["@tanstack/react-query", "zod", "clsx", "lucide-react"],
+        "devRequired": ["typescript", "eslint", "@testing-library/react", "vitest"]
+      },
+      "standards": {
+        "stateManagement": "React context for global state. TanStack Query for server state. useState for component state.",
+        "styling": "Tailwind CSS utility classes. No CSS modules unless component isolation needed. Design tokens via tailwind.config.",
+        "routing": "React Router v6 with lazy-loaded routes. Nested layouts for shared UI.",
+        "forms": "Controlled components with Zod schema validation.",
+        "testing": "Vitest + React Testing Library. Test user behavior, not implementation details."
+      }
+    },
+
+    "nextjs": {
+      "name": "Next.js App Router",
+      "description": "Full-stack application standards",
+      "scaffold": {
+        "tool": "npx create-next-app@latest --typescript --tailwind --eslint --app --src-dir",
+        "postSetup": []
+      },
+      "structure": {
+        "src/app/": "App Router pages and layouts (file-based routing)",
+        "src/app/api/": "API route handlers",
+        "src/app/(auth)/": "Route group for authenticated pages",
+        "src/components/": "Reusable UI components",
+        "src/components/ui/": "Base design system components",
+        "src/lib/": "Server utilities, database clients, auth config",
+        "src/hooks/": "Client-side custom hooks",
+        "src/types/": "TypeScript type definitions",
+        "src/styles/": "Global styles and Tailwind configuration",
+        "tests/": "Test files",
+        "prisma/": "Database schema and migrations (if using Prisma)"
+      },
+      "dependencies": {
+        "required": ["next", "react", "react-dom", "tailwindcss"],
+        "recommended": ["@tanstack/react-query", "zod", "next-auth", "prisma", "lucide-react"],
+        "devRequired": ["typescript", "eslint", "eslint-config-next", "@testing-library/react", "vitest"]
+      },
+      "standards": {
+        "dataFetching": "Server Components by default. Use 'use client' only when needed (interactivity, hooks, browser APIs).",
+        "routing": "App Router with layouts, loading.tsx, error.tsx, and not-found.tsx at each route segment.",
+        "api": "Route handlers in src/app/api/. Validate with Zod. Return NextResponse with proper status codes.",
+        "auth": "NextAuth.js with session strategy. Middleware for route protection.",
+        "database": "Prisma ORM with migrations. Connection pooling in production.",
+        "caching": "Use Next.js built-in caching: fetch cache, route segment config, revalidatePath/revalidateTag.",
+        "testing": "Vitest + React Testing Library for components. Separate integration tests for API routes."
+      }
+    },
+
+    "express": {
+      "name": "Express API",
+      "description": "REST API design standards",
+      "scaffold": {
+        "tool": "manual setup with express-generator-typescript or manual init",
+        "postSetup": ["npm install express cors helmet morgan compression", "npm install -D typescript @types/express @types/node ts-node nodemon"]
+      },
+      "structure": {
+        "src/routes/": "Express route definitions grouped by resource",
+        "src/controllers/": "Request handlers (thin — delegate to services)",
+        "src/services/": "Business logic layer",
+        "src/repositories/": "Database access layer",
+        "src/middleware/": "Express middleware (auth, validation, error handling, rate limiting)",
+        "src/types/": "TypeScript type definitions and interfaces",
+        "src/utils/": "Utility functions and helpers",
+        "src/config/": "Configuration management (env vars, constants)",
+        "src/validators/": "Request validation schemas (Zod or Joi)",
+        "tests/": "Test files mirroring src/ structure"
+      },
+      "dependencies": {
+        "required": ["express", "cors", "helmet", "compression"],
+        "recommended": ["zod", "morgan", "express-rate-limit", "better-sqlite3", "pino"],
+        "devRequired": ["typescript", "@types/express", "@types/node", "vitest", "supertest"]
+      },
+      "standards": {
+        "restConventions": {
+          "naming": "Plural nouns for resources: /api/users, /api/projects. No verbs in URLs.",
+          "methods": "GET (read), POST (create), PUT (full update), PATCH (partial update), DELETE (remove)",
+          "statusCodes": {
+            "200": "OK — successful GET, PUT, PATCH, DELETE",
+            "201": "Created — successful POST",
+            "204": "No Content — successful DELETE with no body",
+            "400": "Bad Request — validation errors",
+            "401": "Unauthorized — missing or invalid auth",
+            "403": "Forbidden — valid auth but insufficient permissions",
+            "404": "Not Found — resource does not exist",
+            "409": "Conflict — duplicate resource or state conflict",
+            "422": "Unprocessable Entity — semantically invalid request",
+            "429": "Too Many Requests — rate limit exceeded",
+            "500": "Internal Server Error — unhandled exception"
+          },
+          "pagination": "Cursor-based preferred. Offset-based acceptable. Always include total count.",
+          "filtering": "Query parameters: ?status=active&sort=-createdAt&limit=20&cursor=abc123",
+          "versioning": "URL prefix: /api/v1/. Major version only. No breaking changes within a version."
+        },
+        "errorFormat": {
+          "shape": {
+            "success": false,
+            "error": {
+              "code": "VALIDATION_ERROR",
+              "message": "Human-readable error description",
+              "details": [
+                {
+                  "field": "email",
+                  "message": "Must be a valid email address"
+                }
+              ]
+            }
+          }
+        },
+        "middleware": "Order: cors → helmet → compression → morgan → rateLimiter → auth → routes → errorHandler",
+        "testing": "Vitest + Supertest for integration tests. Unit tests for services and validators."
+      }
+    },
+
+    "node": {
+      "name": "Node.js Library/Service",
+      "description": "Node.js library and service standards",
+      "scaffold": {
+        "tool": "npm init -y && npx tsc --init",
+        "postSetup": ["npm install -D typescript @types/node vitest"]
+      },
+      "structure": {
+        "src/": "Source code",
+        "src/index.ts": "Public API entry point (re-exports)",
+        "src/lib/": "Core library modules",
+        "src/types/": "TypeScript type definitions",
+        "src/utils/": "Utility functions",
+        "tests/": "Test files mirroring src/ structure",
+        "examples/": "Usage examples"
+      },
+      "dependencies": {
+        "required": [],
+        "recommended": ["zod", "pino"],
+        "devRequired": ["typescript", "@types/node", "vitest", "tsup"]
+      },
+      "standards": {
+        "exports": "Named exports only. No default exports. Re-export public API from src/index.ts.",
+        "errorHandling": "Custom error classes extending Error. Include error codes. Never throw strings.",
+        "logging": "Pino for structured logging. Configurable log level. No console.log in library code.",
+        "configuration": "Accept config objects in constructors. Provide sensible defaults. Validate with Zod.",
+        "testing": "Vitest. Unit tests for all public functions. Integration tests for external dependencies.",
+        "documentation": "JSDoc on all exports. README with quick start, API reference, and examples."
+      }
+    },
+
+    "python": {
+      "name": "Python Project",
+      "description": "Python project standards",
+      "scaffold": {
+        "tool": "python -m venv venv && pip install ruff pytest",
+        "postSetup": ["pip install ruff pytest mypy black"]
+      },
+      "structure": {
+        "src/<package>/": "Main package directory",
+        "src/<package>/__init__.py": "Package initialization and public API",
+        "src/<package>/models/": "Data models (Pydantic or dataclasses)",
+        "src/<package>/services/": "Business logic",
+        "src/<package>/utils/": "Utility functions",
+        "tests/": "Test files mirroring package structure",
+        "tests/conftest.py": "Shared pytest fixtures"
+      },
+      "dependencies": {
+        "required": [],
+        "recommended": ["pydantic", "httpx", "python-dotenv"],
+        "devRequired": ["pytest", "ruff", "mypy", "black", "pytest-cov"]
+      },
+      "standards": {
+        "style": "PEP 8 enforced via Ruff. Black for formatting. Line length 88 characters.",
+        "typing": "Type hints on all function signatures. mypy strict mode. No Any without justification.",
+        "linting": "Ruff with select = ['E', 'F', 'W', 'I', 'N', 'UP', 'S', 'B', 'A', 'C4', 'PT']. Zero warnings.",
+        "testing": "Pytest with fixtures. Coverage > 80%. Parametrize for multiple test cases.",
+        "errorHandling": "Custom exception classes. Never bare except. Always log exceptions with context.",
+        "packaging": "pyproject.toml for metadata. src/ layout. Pin direct dependencies, range for libraries."
+      }
+    }
+  }
+}

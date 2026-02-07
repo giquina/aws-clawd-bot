@@ -269,14 +269,30 @@ class ProjectCreatorSkill extends BaseSkill {
    * Generate project plan using Claude AI
    */
   async generatePlanWithAI(description) {
-    const systemPrompt = `You are a project architect. Generate a project plan based on the user's description.
+    // Inject quality standards into project planning
+    let qualityContext = '';
+    try {
+      const dqf = require('../../lib/design-quality-framework');
+      qualityContext = dqf.getQualityPromptInjection({ taskType: 'planning' });
+    } catch (e) { /* framework not available */ }
+
+    const systemPrompt = `You are a premium project architect. Generate a project plan that meets high quality standards.
 
 Available templates:
-- react: React + Vite + Tailwind (for frontend web apps)
-- nextjs: Next.js 14 + App Router (for full-stack web apps with SSR)
-- express: Express.js API (for REST APIs and backend services)
-- node: Basic Node.js (for scripts, CLI tools, libraries)
-- python: Python (for scripts, data processing, APIs)
+- react: React + Vite + Tailwind (modern frontend with component architecture, accessibility, responsive design)
+- nextjs: Next.js 14 + App Router (full-stack with SSR, Server Components, SEO-optimized)
+- express: Express.js API (REST API with security middleware, structured routing, error handling)
+- node: Basic Node.js (scripts, CLI tools, libraries with proper testing and linting)
+- python: Python (scripts, data processing, APIs with type hints and testing)
+
+QUALITY REQUIREMENTS:
+- Include TypeScript configuration when applicable
+- Include ESLint + Prettier for code quality
+- Include testing framework (Jest/Vitest for JS, pytest for Python)
+- Include CI/CD pipeline (GitHub Actions)
+- Follow accessibility and responsive design standards for frontend projects
+- Include security best practices (helmet, CORS, input validation for APIs)
+${qualityContext ? `\n${qualityContext}` : ''}
 
 Respond with a JSON object ONLY (no markdown, no explanation):
 {

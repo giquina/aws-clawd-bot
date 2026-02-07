@@ -172,7 +172,13 @@ Respond with:
       return this.error(`File not found: ${filePath}`);
     }
 
-    // 2. Ask Claude to edit the file
+    // 2. Ask Claude to edit the file (with quality standards)
+    let qualityHint = '';
+    try {
+      const dqf = require('../../lib/design-quality-framework');
+      qualityHint = dqf.getQualityPromptInjection({ taskType: 'coding' });
+    } catch (e) { /* framework not available */ }
+
     const edited = await this.claude.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4000,
@@ -182,6 +188,7 @@ Respond with:
 
 FILE: ${filePath}
 INSTRUCTIONS: ${instructions}
+${qualityHint ? `\nQUALITY STANDARDS: ${qualityHint}` : ''}
 
 CURRENT CONTENT:
 \`\`\`
@@ -272,7 +279,13 @@ Return the complete edited file content only, no explanations.`
     // Get repo context
     const repoFiles = await this.getRepoStructure(repoName);
 
-    // Ask Claude to create the file
+    // Ask Claude to create the file (with quality standards)
+    let createQualityHint = '';
+    try {
+      const dqf = require('../../lib/design-quality-framework');
+      createQualityHint = dqf.getQualityPromptInjection({ taskType: 'coding' });
+    } catch (e) { /* framework not available */ }
+
     const created = await this.claude.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4000,
@@ -282,6 +295,7 @@ Return the complete edited file content only, no explanations.`
 
 FILE TO CREATE: ${filePath}
 DESCRIPTION: ${description}
+${createQualityHint ? `\nQUALITY STANDARDS: ${createQualityHint}` : ''}
 
 EXISTING PROJECT FILES:
 ${repoFiles}
