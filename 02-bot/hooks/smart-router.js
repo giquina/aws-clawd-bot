@@ -71,9 +71,19 @@ class SmartRouter {
       return message;
     }
 
-    // Skip if already looks like a command
+    // If it looks like a command, try patternMatch first (free regex, no API call)
+    // then fall back to passing through as-is. This handles natural language that
+    // STARTS with a command verb but needs transformation before hitting skills.
+    // e.g. "deploy judo to vercel" → "vercel deploy judo"
+    // e.g. "restart the clawd-bot server" → "restart clawd-bot"
+    // e.g. "logs for JUDO please" → "logs JUDO"
     if (this.looksLikeCommand(message)) {
-      // Even for commands, apply auto-context if repo name is missing
+      const patternResult = this.patternMatch(message, context);
+      if (patternResult) {
+        console.log(`[SmartRouter] Command + pattern match: "${message.substring(0, 50)}" -> "${patternResult}"`);
+        return patternResult;
+      }
+      // No pattern matched — pass through with auto-context (clean command like "deploy judo")
       return this.applyAutoContext(message, context);
     }
 
@@ -244,13 +254,6 @@ class SmartRouter {
       return false;
     }
 
-    // Commands mentioning "vercel" need pattern matching to route correctly
-    // e.g. "deploy judo to vercel" doesn't match any skill directly
-    if (isCommand && /\bvercel\b/i.test(trimmed) && !/^vercel\s+(deploy|preview|url)/i.test(trimmed)) {
-      console.log(`[SmartRouter] Vercel-related command, routing through patternMatch: "${trimmed.substring(0, 60)}"`);
-      return false;
-    }
-
     return isCommand;
   }
 
@@ -343,13 +346,16 @@ class SmartRouter {
       { match: /^deploy\s+(?:this|it)\s+to\s+vercel/i, command: 'vercel deploy' },
 
       // === REMOTE EXECUTION (generic deploy AFTER vercel-specific patterns) ===
-      { match: /run\s+tests?\s+(on\s+)?(.+)/i, command: (m) => `run tests ${m[2].trim()}` },
-      { match: /test\s+(.+)/i, command: (m) => `run tests ${m[1].trim()}` },
-      { match: /deploy\s+(.+?)(\s+to\s+prod(uction)?)?$/i, command: (m) => `deploy ${m[1].trim()}` },
-      { match: /push\s+(.+)\s+live/i, command: (m) => `deploy ${m[1].trim()}` },
-      { match: /(check|show|view)\s+logs?\s+(for\s+)?(.+)/i, command: (m) => `logs ${m[3].trim()}` },
-      { match: /restart\s+(.+)/i, command: (m) => `restart ${m[1].trim()}` },
-      { match: /rebuild\s+(.+)/i, command: (m) => `build ${m[1].trim()}` },
+      // All patterns use extractRepo() to strip noise words (the, please, app, server, project, etc.)
+      { match: /run\s+tests?\s+(?:on\s+)?(.+)/i, command: (m) => `run tests ${SmartRouter.extractRepo(m[1])}` },
+      { match: /test\s+(.+)/i, command: (m) => `run tests ${SmartRouter.extractRepo(m[1])}` },
+      { match: /deploy\s+(.+?)(\s+to\s+prod(uction)?)?$/i, command: (m) => `deploy ${SmartRouter.extractRepo(m[1])}` },
+      { match: /push\s+(.+)\s+live/i, command: (m) => `deploy ${SmartRouter.extractRepo(m[1])}` },
+      { match: /(?:check|show|view|get)\s+logs?\s+(?:for\s+|of\s+)?(.+)/i, command: (m) => `logs ${SmartRouter.extractRepo(m[1])}` },
+      { match: /logs?\s+(?:for|of|from)\s+(.+)/i, command: (m) => `logs ${SmartRouter.extractRepo(m[1])}` },
+      { match: /restart\s+(.+)/i, command: (m) => `restart ${SmartRouter.extractRepo(m[1])}` },
+      { match: /(?:re)?build\s+(.+)/i, command: (m) => `build ${SmartRouter.extractRepo(m[1])}` },
+      { match: /install\s+(?:deps|dependencies|packages|modules)?\s*(?:on|for|in)?\s*(.+)/i, command: (m) => `install ${SmartRouter.extractRepo(m[1])}` },
 
       // === VOICE COMMANDS ===
       { match: /what\s+(do\s+i\s+)?need\s+to\s+do\s+(for\s+)?(.+)?/i, command: (m) => m[3] ? `project status ${m[3].trim()}` : 'project status' },
@@ -368,6 +374,8 @@ class SmartRouter {
         } else {
           cmd = command;
         }
+        // Clean up any double spaces or trailing whitespace from extractRepo
+        cmd = cmd.replace(/\s+/g, ' ').trim();
         // Apply auto-context to the matched command
         return this.applyAutoContext(cmd, context);
       }
@@ -430,6 +438,26 @@ Command:`
       console.error('[SmartRouter] AI routing failed:', e.message);
       return null;
     }
+  }
+
+  /**
+   * Extract a repo/project name from natural language by stripping noise words.
+   * "the clawd-bot server please" → "clawd-bot"
+   * "JUDO please" → "JUDO"
+   * "the judo app" → "judo"
+   * "deps on JUDO" → "JUDO"
+   */
+  static extractRepo(text) {
+    if (!text) return '';
+    // Split into space-separated tokens, filter out noise words (case-insensitive)
+    const noiseSet = new Set(['the', 'a', 'an', 'please', 'pls', 'plz', 'now', 'asap',
+      'quickly', 'server', 'service', 'app', 'application', 'project', 'repo',
+      'repository', 'site', 'website', 'deps', 'dependencies', 'packages',
+      'modules', 'on', 'for', 'in', 'of', 'from']);
+    const tokens = text.trim().split(/\s+/).filter(t => !noiseSet.has(t.toLowerCase()));
+    // Return the first remaining token (preserves hyphens in names like "clawd-bot")
+    // If ALL tokens were noise (e.g. "the server please"), return empty — applyAutoContext will fill repo
+    return tokens[0] || '';
   }
 
   // Clear expired cache entries
