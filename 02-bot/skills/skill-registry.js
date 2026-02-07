@@ -180,6 +180,17 @@ class SkillRegistry extends EventEmitter {
     const sortedSkills = Array.from(this.skills.values())
       .sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
+    // === IMPROVEMENT #7: Skill conflict detection ===
+    // Log when multiple skills match the same command (catches silent priority bugs)
+    const matchingSkills = sortedSkills.filter(s => {
+      try { return s.canHandle(normalizedCommand, context); } catch { return false; }
+    });
+    if (matchingSkills.length > 1) {
+      const matchList = matchingSkills.map(s => `${s.name}(p${s.priority || 0})`).join(', ');
+      console.warn(`[Registry] ⚠ ${matchingSkills.length} skills match "${normalizedCommand.substring(0, 50)}": ${matchList}`);
+      this.emit('skillConflict', { command: normalizedCommand, matches: matchingSkills.map(s => ({ name: s.name, priority: s.priority || 0 })) });
+    }
+
     // Find the first skill that can handle this command
     for (const skill of sortedSkills) {
       try {

@@ -340,6 +340,22 @@ class SmartRouter {
         } else {
           cmd = command;
         }
+
+        // === IMPROVEMENT #8: Validate transformed commands ===
+        // Commands that require a target should have one — don't dispatch malformed commands
+        cmd = (cmd || '').replace(/\s+/g, ' ').trim();
+        const requiresTarget = /^(deploy|restart|build|install|logs|run tests?|test|vercel deploy|vercel preview)\s*$/i;
+        if (requiresTarget.test(cmd)) {
+          // Target is missing — try auto-context
+          const withContext = this.applyAutoContext(cmd, context);
+          if (withContext === cmd) {
+            // No auto-context available either — can't dispatch safely
+            console.warn(`[SmartRouter] Command "${cmd}" missing target and no auto-context available`);
+            return null; // Let AI handler deal with it
+          }
+          return withContext;
+        }
+
         // Apply auto-context to the matched command
         return this.applyAutoContext(cmd, context);
       }
@@ -347,15 +363,99 @@ class SmartRouter {
     return null;
   }
 
-  async aiRoute(message, context = {}) {
+  /**
+   * Generate available commands list from SkillRegistry (Improvement #1)
+   * Auto-discovers all registered skills — no more hardcoded command lists.
+   * @returns {string} Formatted command list for AI prompts
+   */
+  getAvailableCommands() {
     try {
-      // Build context hint for AI
+      const registry = require('../skills/skill-registry');
+      if (!registry || registry.skills.size === 0) return this._fallbackCommandList();
+
+      const skills = registry.listSkills();
+      const lines = [];
+      for (const skill of skills) {
+        for (const cmd of (skill.commands || []).slice(0, 3)) {
+          const usage = cmd.usage || cmd.pattern?.toString().replace(/[\/^$]/g, '') || skill.name;
+          lines.push(`- ${usage}${cmd.description ? ' — ' + cmd.description : ''}`);
+        }
+      }
+      return lines.length > 0 ? lines.join('\n') : this._fallbackCommandList();
+    } catch {
+      return this._fallbackCommandList();
+    }
+  }
+
+  /**
+   * Fallback command list when registry isn't available
+   */
+  _fallbackCommandList() {
+    return [
+      '- deadlines, deadlines <COMPANY_CODE>',
+      '- companies, company <CODE>, company number <CODE>',
+      '- expenses, summary, pending receipts',
+      '- list repos, analyze <repo>, create new project <name>',
+      '- can I <action>?, governance <topic>',
+      '- intercompany, loans, ic balance',
+      '- workflows, workflows pending',
+      '- help, status',
+      '- project status <repo>, readme <repo>, project files <repo>',
+      '- my repos, switch to <repo>, active project',
+      '- run tests <repo>, deploy <repo>, logs <repo>',
+      '- restart <repo>, build <repo>, install <repo>',
+      '- vercel deploy <repo>, vercel preview <repo>'
+    ].join('\n');
+  }
+
+  /**
+   * AI-powered routing via IntentClassifier (Improvement #3)
+   *
+   * Replaces the old hardcoded-prompt aiRoute with the existing IntentClassifier
+   * which has confidence scoring, ambiguity detection, correction learning,
+   * and user history patterns.
+   *
+   * Falls back to direct Claude Haiku call if IntentClassifier is unavailable.
+   */
+  async aiRoute(message, context = {}) {
+    // === Try IntentClassifier first (Improvement #3) ===
+    try {
+      const classifier = require('../lib/intent-classifier');
+      if (!classifier.claude) classifier.initialize();
+
+      const result = await classifier.classifyIntent(message, {
+        activeProject: context.autoRepo,
+        userId: context.userId,
+      });
+
+      // Low confidence or ambiguous → let AI handler take it as conversation
+      if (result.confidence < 0.5 || result.ambiguous) {
+        console.log(`[SmartRouter] IntentClassifier low confidence (${result.confidence.toFixed(2)}), passing to AI`);
+        return null;
+      }
+
+      // Map structured intent → command string
+      const command = this.intentToCommand(result, context);
+      if (command) {
+        console.log(`[SmartRouter] IntentClassifier: "${message}" → "${command}" (confidence: ${result.confidence.toFixed(2)})`);
+        return this.applyAutoContext(command, context);
+      }
+    } catch (e) {
+      console.warn(`[SmartRouter] IntentClassifier failed, falling back to direct AI: ${e.message}`);
+    }
+
+    // === Fallback: Direct Claude Haiku with auto-generated command list (Improvement #1) ===
+    if (!this.claude) return null;
+
+    try {
       let contextHint = '';
       if (context.autoRepo) {
         contextHint = `\n\nNote: The user is in the context of repo "${context.autoRepo}". If the command needs a repo and none is specified, use "${context.autoRepo}".`;
       } else if (context.autoCompany) {
         contextHint = `\n\nNote: The user is in the context of company "${context.autoCompany}". If the command needs a company and none is specified, use "${context.autoCompany}".`;
       }
+
+      const availableCommands = this.getAvailableCommands();
 
       const response = await this.claude.messages.create({
         model: 'claude-3-5-haiku-20241022',
@@ -364,22 +464,10 @@ class SmartRouter {
           role: 'user',
           content: `Convert this natural language to a ClawdBot command. Reply with ONLY the command, nothing else. If it doesn't match any command, reply with the original message exactly.
 
-IMPORTANT: If the message is a conversational question, follow-up, or acknowledgment (not a command), return the ORIGINAL message unchanged. Do NOT force it into a command. Examples of conversational messages that should be returned unchanged: "How long will it take?", "What about the other one?", "Can you explain more?", "Sounds good", "Thanks", "Why did that happen?", any question mark ending message that isn't clearly requesting a specific command action.
+IMPORTANT: If the message is a conversational question, follow-up, or acknowledgment (not a command), return the ORIGINAL message unchanged. Do NOT force it into a command.
 
 Available commands:
-- deadlines, deadlines <COMPANY_CODE>
-- companies, company <CODE>, company number <CODE>
-- expenses, summary, pending receipts
-- list repos, analyze <repo>, create new project <name>
-- can I <action>?, governance <topic>
-- intercompany, loans, ic balance
-- workflows, workflows pending
-- help, status
-- project status <repo>, readme <repo>, project files <repo>
-- my repos, switch to <repo>, active project
-- run tests <repo>, deploy <repo>, logs <repo>
-- restart <repo>, build <repo>, install <repo>
-- vercel deploy <repo>, vercel preview <repo>
+${availableCommands}
 
 Company codes: GMH, GACC, GCAP, GQCARS, GSPV${contextHint}
 
@@ -391,17 +479,51 @@ Command:`
 
       const aiCommand = response.content[0].text.trim();
 
-      // Basic validation - don't return nonsense
       if (aiCommand.length > 100 || aiCommand.includes('\n')) {
         return null;
       }
 
-      // Apply auto-context to AI-generated command as well
       return this.applyAutoContext(aiCommand, context);
     } catch (e) {
       console.error('[SmartRouter] AI routing failed:', e.message);
       return null;
     }
+  }
+
+  /**
+   * Map a structured IntentClassifier result to a command string
+   * @param {Object} intent - IntentClassifier result
+   * @param {Object} context - Routing context
+   * @returns {string|null} Command string, or null if can't map
+   */
+  intentToCommand(intent, context = {}) {
+    if (!intent || !intent.actionType || intent.actionType === 'unknown') return null;
+
+    // Map intent action types to command verbs
+    const actionMap = {
+      'deploy': 'deploy',
+      'check-status': 'project status',
+      'check-deadlines': 'deadlines',
+      'process-receipt': 'expenses',
+      'create-page': 'create page',
+      'create-feature': 'create feature',
+      'code-task': null, // Let AI handler handle coding tasks
+      'file-taxes': 'file taxes',
+      'submit-filing': 'submit filing',
+      'restart': 'restart',
+      'list': 'list repos',
+      'view': 'project status',
+      'general-query': null, // Conversational — AI handler
+    };
+
+    const commandVerb = actionMap[intent.actionType];
+    if (!commandVerb) return null; // Can't map — let AI handler take it
+
+    const parts = [commandVerb];
+    if (intent.target) parts.push(intent.target);
+    if (intent.company) parts.push(intent.company);
+
+    return parts.join(' ');
   }
 
   // Clear expired cache entries

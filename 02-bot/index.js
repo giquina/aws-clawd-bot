@@ -28,6 +28,10 @@ app.use('/github-webhook', bodyParser.json({
 // Default JSON parser for other routes
 app.use(bodyParser.json());
 
+// === IMPROVEMENT #5: Per-user last command tracking for anaphoric resolution ===
+// Stores the last successfully executed command per user (auto-cleared after 5 min)
+const _lastCommandByUser = new Map();
+
 // CORS - allow dashboard and other clients to call the API
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
@@ -1663,6 +1667,37 @@ async function processMessageForTelegram(incomingMsg, context) {
             activityLog.log('activity', 'voice', 'Transcribing voice message with Groq Whisper...', { userId });
         }
 
+        // === IMPROVEMENT #5: Follow-up context / anaphoric resolution ===
+        // Detect "do that for X too", "same thing for Y", "again for Z" etc.
+        // and replay the last executed command with a new target
+        if (!isVoiceMessage && incomingMsg && typeof _lastCommandByUser !== 'undefined') {
+            const anaphoricPatterns = [
+                /^(?:do that|same|again|same thing|repeat)\s+(?:for|on|to|with)\s+(.+)/i,
+                /^(?:and|also)\s+(?:for|on)\s+(.+)/i,
+                /^(?:do it|run it|that)\s+(?:for|on)\s+(.+)/i,
+                /^(?:now (?:do|for))\s+(.+)/i,
+            ];
+            for (const pattern of anaphoricPatterns) {
+                const match = incomingMsg.match(pattern);
+                if (match && _lastCommandByUser.has(userId)) {
+                    const prev = _lastCommandByUser.get(userId);
+                    if (Date.now() - prev.timestamp < 5 * 60 * 1000) { // 5 min window
+                        const newTarget = match[1].trim().replace(/^(the|my|our)\s+/i, '');
+                        // Replace the last word (target) in the previous command
+                        const prevParts = prev.command.split(/\s+/);
+                        if (prevParts.length >= 2) {
+                            prevParts[prevParts.length - 1] = newTarget;
+                        } else {
+                            prevParts.push(newTarget);
+                        }
+                        processedMsg = prevParts.join(' ');
+                        console.log(`[Anaphoric] Replayed "${prev.command}" → "${processedMsg}"`);
+                        activityLog.log('activity', 'anaphoric', `Command replay: "${processedMsg}"`, { userId });
+                    }
+                }
+            }
+        }
+
         // RUN HOOKS (smart router converts natural language to commands)
         // Skip hooks for voice - the voice skill handles transcription
         if (hooks && !isVoiceMessage) {
@@ -1677,6 +1712,47 @@ async function processMessageForTelegram(incomingMsg, context) {
                 autoCompany
             };
             processedMsg = await hooks.preprocess(incomingMsg, hookContext);
+        }
+
+        // === IMPROVEMENT #2: Command echo-back for dangerous actions ===
+        // If smart router transformed the message AND the result maps to a dangerous action,
+        // show the user what we interpreted and require confirmation before dispatch.
+        if (!isVoiceMessage && processedMsg && processedMsg !== incomingMsg && confirmationManager && !confirmationManager.hasPending(userId)) {
+            const dangerousVerbs = /^(deploy|restart|delete|remove|create|push|publish|send|file-taxes|submit)/i;
+            const firstWord = processedMsg.trim().split(/\s+/)[0];
+            if (dangerousVerbs.test(firstWord)) {
+                console.log(`[EchoBack] Dangerous transform: "${incomingMsg}" → "${processedMsg}"`);
+                confirmationManager.setPending(userId, processedMsg.trim().split(/\s+/)[0], {
+                    command: processedMsg,
+                    originalMessage: incomingMsg,
+                });
+                const echoMsg = `I understood: **${processedMsg}**\n\n(from: "${incomingMsg.substring(0, 80)}")\n\nReply "yes" to execute or "no" to cancel.`;
+                if (memory) memory.saveMessage(chatId || userId, 'assistant', echoMsg);
+                return echoMsg;
+            }
+        }
+
+        // === IMPROVEMENT #6: Multi-command decomposition ===
+        // Detect compound commands ("run tests and then deploy") and present as a plan
+        if (!isVoiceMessage && processedMsg && confirmationManager && !confirmationManager.hasPending(userId)) {
+            try {
+                const { decompose, formatPlan } = require('./lib/command-decomposer');
+                const plan = decompose(processedMsg);
+                if (plan && plan.steps.length >= 2) {
+                    console.log(`[Decompose] Compound command: ${plan.steps.length} steps from "${processedMsg.substring(0, 60)}"`);
+                    const planMsg = formatPlan(plan);
+                    confirmationManager.setPending(userId, 'compound_plan', {
+                        steps: plan.steps,
+                        isConditional: plan.isConditional,
+                        condition: plan.condition,
+                        original: plan.original,
+                    });
+                    if (memory) memory.saveMessage(chatId || userId, 'assistant', planMsg);
+                    return planMsg;
+                }
+            } catch (e) {
+                console.warn('[Decompose] Error:', e.message);
+            }
         }
 
         // TEXT PLAN DETECTION — give text same treatment as voice for substantial coding instructions
@@ -1760,6 +1836,11 @@ async function processMessageForTelegram(incomingMsg, context) {
             const skillResult = await skillRegistry.route(processedMsg, skillContext);
 
             if (skillResult.handled) {
+                // === IMPROVEMENT #5: Track last command for anaphoric resolution ===
+                if (skillResult.success && processedMsg && processedMsg !== '__voice__') {
+                    _lastCommandByUser.set(userId, { command: processedMsg, timestamp: Date.now() });
+                }
+
                 let responseText = skillResult.success ? skillResult.message : `❌ ${skillResult.message}`;
 
                 // If this was a voice transcription, process it intelligently
