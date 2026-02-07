@@ -1123,12 +1123,11 @@ app.post('/github-webhook', async (req, res) => {
                             });
                         } catch (e) { /* ignore */ }
 
-                        // Send failure message
+                        // Send human-friendly failure message
                         if (targetChat && telegram?.isAvailable()) {
                             try {
-                                await telegram.sendMessage(targetChat,
-                                    `❌ *Auto-deploy failed for ${pushRepo}*\n\n\`${deployErr.message.substring(0, 200)}\`\n\nYou can retry manually: \`vercel deploy ${pushRepo}\``
-                                );
+                                const { formatDeployError } = require('./lib/telegram-sanitizer');
+                                await telegram.sendMessage(targetChat, formatDeployError(pushRepo, deployErr));
                             } catch (e) { /* ignore */ }
                         }
                     }
@@ -2477,7 +2476,10 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
             extractAndSaveFacts(userId, incomingMsg);
         }
 
-        // Truncate response based on platform limits (handled by MessagingPlatform)
+        // Sanitize response — strip XML tags, agent internals, technical noise
+        const { sanitizeResponse } = require('./lib/telegram-sanitizer');
+        responseText = sanitizeResponse(responseText);
+
         // Send response via appropriate platform
         await MessagingPlatform.sendToRecipient(responseText, platform, fromNumber);
 
@@ -2485,10 +2487,11 @@ async function processMessageAsync(incomingMsg, fromNumber, userId, mediaContext
 
     } catch (error) {
         console.error('Error processing message async:', error);
-        // Try to send error message to user
+        // Send human-friendly error message to user
         try {
+            const { sanitizeError } = require('./lib/telegram-sanitizer');
             await MessagingPlatform.sendToRecipient(
-                `Sorry, I had trouble processing that. Try again or type "help". Error: ${error.message}`,
+                `Sorry, I had trouble with that. ${sanitizeError(error)}`,
                 platform,
                 fromNumber
             );

@@ -96,7 +96,7 @@ class PlanExecutor {
 
       // Step 3: Get the target repo structure for context
       const targetRepo = operations.repo;
-      await progress(`Reading ${targetRepo} project structure...`);
+      await progress(`Checking the ${targetRepo} project files...`);
 
       let repoStructure = '';
       try {
@@ -116,7 +116,7 @@ class PlanExecutor {
 
       for (let i = 0; i < writeOps.length; i++) {
         const op = writeOps[i];
-        await progress(`Generating code: ${op.path} (${i + 1}/${writeOps.length})...`);
+        await progress(`Writing files... (${i + 1} of ${writeOps.length})`);
 
         let existingContent = null;
         let fileSha = null;
@@ -198,7 +198,7 @@ Return ONLY the complete file content, no explanations or markdown fences.`;
       // Step 5: Create branch
       await updateTask(3, 'current');
       const branchName = `clawd-${targetRepo}-${Date.now()}`;
-      await progress(`Creating branch: ${branchName}...`);
+      await progress('Setting up a new branch...');
 
       const repo = await this.octokit.repos.get({
         owner: this.username,
@@ -224,7 +224,7 @@ Return ONLY the complete file content, no explanations or markdown fences.`;
       await updateTask(4, 'current');
       for (let i = 0; i < fileChanges.length; i++) {
         const change = fileChanges[i];
-        await progress(`Committing: ${change.path} (${i + 1}/${fileChanges.length})...`);
+        await progress(`Saving changes... (${i + 1} of ${fileChanges.length})`);
 
         const commitData = {
           owner: this.username,

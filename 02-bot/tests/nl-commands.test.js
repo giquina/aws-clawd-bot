@@ -1150,6 +1150,93 @@ async function testSmartRouterPronounResolution() {
 }
 
 // ============================================================================
+// TELEGRAM SANITIZER
+// ============================================================================
+
+function testTelegramSanitizer() {
+  section('TelegramSanitizer: Response Cleaning');
+
+  const {
+    sanitizeResponse,
+    sanitizeError,
+    humanizeCommit,
+    formatPushNotification,
+    formatDeployError,
+    humanizeProgress,
+  } = require('../lib/telegram-sanitizer');
+
+  // Test: Strip XML invoke blocks
+  const xmlResponse = 'Sure! <invoke name="task"><task_description>Search repos</task_description><agent_role>search_specialist</agent_role><success_criteria>Find all code</success_criteria></invoke> I\'ll handle that.';
+  const cleaned = sanitizeResponse(xmlResponse);
+  test('Sanitizer', 'Strips <invoke> blocks', !cleaned.includes('<invoke'), `got: "${cleaned.substring(0, 80)}"`);
+  test('Sanitizer', 'Strips <task_description>', !cleaned.includes('<task_description'));
+  test('Sanitizer', 'Strips <agent_role>', !cleaned.includes('agent_role'));
+  test('Sanitizer', 'Keeps human text', cleaned.includes("Sure!") && cleaned.includes("handle that"));
+
+  // Test: Strip thinking tags
+  const thinkingResponse = '<thinking>Let me analyze this</thinking>Here is my answer.';
+  const cleanThinking = sanitizeResponse(thinkingResponse);
+  test('Sanitizer', 'Strips <thinking> blocks', !cleanThinking.includes('analyze this'));
+  test('Sanitizer', 'Keeps answer after thinking', cleanThinking.includes('Here is my answer'));
+
+  // Test: Strip agent role identifiers
+  const agentResponse = 'The search_specialist found results and the architecture_analyst recommends Node.js.';
+  const cleanAgent = sanitizeResponse(agentResponse);
+  test('Sanitizer', 'Strips agent role names', !cleanAgent.includes('search_specialist'));
+
+  // Test: Strip GitHub API doc URLs
+  const errorWithUrl = 'Not Found - https://docs.github.com/rest/repos/repos#get-a-repository';
+  const cleanUrl = sanitizeResponse(errorWithUrl);
+  test('Sanitizer', 'Strips GitHub API doc URLs', !cleanUrl.includes('docs.github.com'));
+
+  // Test: Clean multiple blank lines
+  const messy = 'Line 1\n\n\n\n\nLine 2';
+  test('Sanitizer', 'Collapses blank lines', !sanitizeResponse(messy).includes('\n\n\n'));
+
+  // Test: null/empty handling
+  test('Sanitizer', 'Handles null', sanitizeResponse(null) === '');
+  test('Sanitizer', 'Handles empty string', sanitizeResponse('') === '');
+
+  // --- Error sanitization ---
+  test('Sanitizer', 'GitHub Not Found → friendly', sanitizeError('Not Found - https://docs.github.com/rest/repos').includes("couldn't find"));
+  test('Sanitizer', 'Timeout → friendly', sanitizeError('Request timed out after 30000ms').includes('timed out'));
+  test('Sanitizer', 'Rate limit → friendly', sanitizeError('429 Too Many Requests').includes('rate limit'));
+  test('Sanitizer', 'Connection error → friendly', sanitizeError('ECONNREFUSED').includes('trouble connecting'));
+
+  // --- Commit humanization ---
+  test('Sanitizer', 'feat: → "Added a new feature"',
+    humanizeCommit('feat: implement NL handlers').startsWith('Added a new feature'));
+  test('Sanitizer', 'fix: → "Fixed a bug"',
+    humanizeCommit('fix: resolve timeout issue').startsWith('Fixed a bug'));
+  test('Sanitizer', 'docs: → "Updated documentation"',
+    humanizeCommit('docs: update README').startsWith('Updated documentation'));
+  test('Sanitizer', 'Non-conventional preserved',
+    humanizeCommit('Update the login page') === 'Update the login page');
+
+  // --- Push notification formatting ---
+  const push = formatPushNotification('JUDO', 'main', 'giquina', [
+    { message: 'feat: add rate limiting' }
+  ]);
+  test('Sanitizer', 'Push notification has repo name', push.includes('JUDO'));
+  test('Sanitizer', 'Push notification humanizes commit', push.includes('Added a new feature'));
+  test('Sanitizer', 'Push notification no raw commit prefix', !push.includes('feat:'));
+
+  // --- Deploy error formatting ---
+  const deployError = formatDeployError('JUDO', 'ECONNREFUSED');
+  test('Sanitizer', 'Deploy error has repo name', deployError.includes('JUDO'));
+  test('Sanitizer', 'Deploy error is friendly', deployError.includes('trouble connecting'));
+  test('Sanitizer', 'Deploy error suggests retry', deployError.includes('retry'));
+
+  // --- Progress humanization ---
+  test('Sanitizer', 'File generation humanized',
+    humanizeProgress('Generating code: src/utils/Logger.js (8/9)...').includes('8 of 9'));
+  test('Sanitizer', 'Committing humanized',
+    humanizeProgress('Committing: src/index.js (1/3)...').includes('1 of 3'));
+  test('Sanitizer', 'Branch creation humanized',
+    humanizeProgress('Creating branch: clawd-judo-12345').includes('new branch'));
+}
+
+// ============================================================================
 // SUMMARY
 // ============================================================================
 
@@ -1231,6 +1318,9 @@ async function main() {
     testNLTuningSkill();
     await testSmartRouterMultiIntent();
     await testSmartRouterPronounResolution();
+
+    // Telegram Sanitizer tests
+    testTelegramSanitizer();
 
   } catch (err) {
     console.error(`\n${C.red}Unexpected error:${C.reset}`, err);

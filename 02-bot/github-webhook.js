@@ -109,19 +109,15 @@ class GitHubWebhookHandler {
             return null;
         }
 
-        const commitWord = commitCount === 1 ? 'commit' : 'commits';
-        let message = `[${repo}] Push: ${commitCount} ${commitWord} to ${branch} by @${pusher}`;
-
-        // Add first commit message if available
-        if (payload.commits?.[0]?.message) {
-            const firstCommit = payload.commits[0].message.split('\n')[0];
-            const truncated = firstCommit.length > 50
-                ? firstCommit.substring(0, 47) + '...'
-                : firstCommit;
-            message += `\n"${truncated}"`;
+        // Use human-friendly formatting
+        try {
+            const { formatPushNotification } = require('./lib/telegram-sanitizer');
+            return formatPushNotification(repo, branch, pusher, payload.commits || []);
+        } catch (e) {
+            // Fallback to basic format if sanitizer not available
+            const commitWord = commitCount === 1 ? 'commit' : 'commits';
+            return `New update on *${repo}*: ${commitCount} ${commitWord} to ${branch}`;
         }
-
-        return message;
     }
 
     /**
