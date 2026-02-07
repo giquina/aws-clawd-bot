@@ -11,12 +11,15 @@ class SmartRouter {
     this.cacheMaxAge = 5 * 60 * 1000; // 5 min cache
     this.cacheMaxSize = 500; // Prevent unbounded growth
     this.aiTimeoutMs = 5000; // 5s timeout for AI calls
-    this.routeMetrics = { patternHits: 0, aiHits: 0, passthroughs: 0, cacheHits: 0 };
+    this.routeMetrics = { patternHits: 0, aiHits: 0, passthroughs: 0, cacheHits: 0, pronounResolutions: 0, multiIntents: 0 };
 
     // Dynamic skill commands - populated from skill registry
     this._dynamicCommands = null;
     this._dynamicCommandsAge = 0;
     this._dynamicCommandsTTL = 60 * 1000; // Refresh every 60s
+
+    // Multi-intent: stores remaining intents after routing the first one
+    this.lastMultiIntentResult = null;
   }
 
   initialize() {
@@ -39,8 +42,50 @@ class SmartRouter {
       return message;
     }
 
-    const trimmed = message.trim();
+    let trimmed = message.trim();
     if (!trimmed) return message;
+
+    // Clear previous multi-intent result
+    this.lastMultiIntentResult = null;
+
+    // === STEP 0a: Conversation threading — record entity mentions ===
+    if (context.chatId) {
+      try {
+        const conversationThread = require('../lib/conversation-thread');
+        conversationThread.detectAndRecord(context.chatId, trimmed);
+      } catch (e) { /* conversation-thread not available */ }
+    }
+
+    // === STEP 0b: Pronoun resolution — resolve "it", "them", "again", etc. ===
+    if (context.chatId) {
+      try {
+        const conversationThread = require('../lib/conversation-thread');
+        const resolved = conversationThread.resolvePronouns(context.chatId, trimmed);
+        if (resolved !== trimmed) {
+          this.routeMetrics.pronounResolutions++;
+          trimmed = resolved;
+        }
+      } catch (e) { /* conversation-thread not available */ }
+    }
+
+    // === STEP 0c: Multi-intent detection — split compound commands ===
+    try {
+      const multiIntentParser = require('../lib/multi-intent-parser');
+      const multiResult = multiIntentParser.parse(trimmed);
+      if (multiResult.isMultiIntent && multiResult.intents.length > 1) {
+        this.routeMetrics.multiIntents++;
+        // Route the FIRST intent through the pipeline
+        trimmed = multiResult.intents[0].text;
+        // Store remaining intents for caller to pick up
+        this.lastMultiIntentResult = {
+          totalIntents: multiResult.intents.length,
+          remainingIntents: multiResult.intents.slice(1),
+          isSequential: multiResult.intents.some(i => i.isSequential),
+          originalMessage: multiResult.originalMessage
+        };
+        console.log(`[SmartRouter] Multi-intent: ${multiResult.intents.length} intents detected, routing first: "${trimmed}"`);
+      }
+    } catch (e) { /* multi-intent-parser not available */ }
 
     // === STEP 1: Check cache first (fastest) ===
     const cacheKey = this._buildCacheKey(trimmed, context);
@@ -115,7 +160,7 @@ class SmartRouter {
       }
     }
 
-    return message; // Return original if can't route
+    return trimmed; // Return (possibly pronoun-resolved / multi-intent-split) text
   }
 
   // === GUARDS (extracted for testability) ===
@@ -603,6 +648,8 @@ Command:`
       total,
       patternRate: total > 0 ? ((this.routeMetrics.patternHits / total) * 100).toFixed(1) + '%' : '0%',
       cacheRate: total > 0 ? ((this.routeMetrics.cacheHits / total) * 100).toFixed(1) + '%' : '0%',
+      pronounResolutions: this.routeMetrics.pronounResolutions || 0,
+      multiIntents: this.routeMetrics.multiIntents || 0,
     };
   }
 
@@ -610,7 +657,7 @@ Command:`
    * Reset routing metrics
    */
   resetMetrics() {
-    this.routeMetrics = { patternHits: 0, aiHits: 0, passthroughs: 0, cacheHits: 0 };
+    this.routeMetrics = { patternHits: 0, aiHits: 0, passthroughs: 0, cacheHits: 0, pronounResolutions: 0, multiIntents: 0 };
   }
 }
 

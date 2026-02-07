@@ -55,7 +55,8 @@
     "spotify",
     "wellness",
     "goals",
-    "superdesign"
+    "superdesign",
+    "nl-tuning"
   ],
   "disabled": [],
   "config": {
@@ -236,6 +237,7 @@
       "generateTimeout": 600000,
       "requiresConfirmation": false,
       "cliVersion": "latest"
-    }
+    },
+    "nl-tuning": {}
   }
 }

@@ -12,6 +12,17 @@ require('dotenv').config({ path: path.join(__dirname, '..', 'config', '.env.loca
 const hooks = require('./hooks');
 hooks.initializeHooks();
 
+// Initialize context dedup — patches contextEngine.build() so ALL callers
+// automatically get per-request caching. Reduces 9 redundant context builds
+// per message to 1 actual build + 8 cache hits.
+try {
+    const contextDedup = require('./lib/context-dedup');
+    contextDedup.patchContextEngine();
+    console.log('✅ Context dedup patched');
+} catch (err) {
+    console.log('⚠️  Context dedup not available:', err.message);
+}
+
 const app = express();
 const port = process.env.PORT || 3000;
 

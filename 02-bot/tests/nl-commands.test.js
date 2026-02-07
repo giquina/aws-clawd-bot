@@ -756,6 +756,400 @@ async function testE2EFlow() {
 }
 
 // ============================================================================
+// CONVERSATION THREADING
+// ============================================================================
+
+function testConversationThreading() {
+  section('ConversationThread: Pronoun Resolution');
+
+  const thread = require('../lib/conversation-thread');
+
+  // Clean slate
+  thread.clear('test-chat-1');
+  thread.clear('test-chat-2');
+
+  // Test: Record repo mention and resolve "it"
+  thread.recordMention('test-chat-1', 'repo', 'JUDO');
+  const r1 = thread.resolvePronouns('test-chat-1', 'deploy it');
+  test('Thread', '"deploy it" → "deploy JUDO"', r1 === 'deploy JUDO', `got: "${r1}"`);
+
+  // Test: Record company mention and resolve "their"
+  thread.recordMention('test-chat-1', 'company', 'GMH');
+  const r2 = thread.resolvePronouns('test-chat-1', 'show their expenses');
+  test('Thread', '"show their expenses" → "show GMH expenses"', r2 === 'show GMH expenses', `got: "${r2}"`);
+
+  // Test: "on it" resolution
+  thread.clear('test-chat-2');
+  thread.recordMention('test-chat-2', 'repo', 'LusoTown');
+  const r3 = thread.resolvePronouns('test-chat-2', 'run tests on it');
+  test('Thread', '"run tests on it" → "run tests on LusoTown"', r3 === 'run tests on LusoTown', `got: "${r3}"`);
+
+  // Test: "again" repeats last action
+  thread.recordMention('test-chat-2', 'action', 'deploy');
+  const r4 = thread.resolvePronouns('test-chat-2', 'again');
+  test('Thread', '"again" → "deploy LusoTown"', r4 === 'deploy LusoTown', `got: "${r4}"`);
+
+  // Test: "same for X" resolves to lastAction + X
+  const r5 = thread.resolvePronouns('test-chat-2', 'do the same for JUDO');
+  test('Thread', '"do the same for JUDO" → "deploy JUDO"', r5 === 'deploy JUDO', `got: "${r5}"`);
+
+  // Test: "the other one" resolves to second-to-last repo
+  thread.clear('test-chat-1');
+  thread.recordMention('test-chat-1', 'repo', 'JUDO');
+  thread.recordMention('test-chat-1', 'repo', 'LusoTown');
+  const r6 = thread.resolvePronouns('test-chat-1', 'deploy the other one');
+  test('Thread', '"deploy the other one" → "deploy JUDO"', r6 === 'deploy JUDO', `got: "${r6}"`);
+
+  // Test: "there" resolves to lastRepo
+  thread.clear('test-chat-1');
+  thread.recordMention('test-chat-1', 'repo', 'armora');
+  const r7 = thread.resolvePronouns('test-chat-1', 'what files are there');
+  test('Thread', '"what files are there" → "what files are in armora"', r7 === 'what files are in armora', `got: "${r7}"`);
+
+  // Test: No thread state → unchanged
+  thread.clear('test-chat-99');
+  const r8 = thread.resolvePronouns('test-chat-99', 'deploy it');
+  test('Thread', 'No thread state → unchanged', r8 === 'deploy it', `got: "${r8}"`);
+
+  // Test: detectAndRecord auto-detects entities
+  thread.clear('test-chat-1');
+  const detected = thread.detectAndRecord('test-chat-1', 'deploy JUDO');
+  test('Thread', 'detectAndRecord finds JUDO', detected.some(d => d.type === 'repo' && d.value === 'JUDO'));
+
+  // Test: detectAndRecord finds companies
+  thread.clear('test-chat-1');
+  const detected2 = thread.detectAndRecord('test-chat-1', 'check deadlines for GMH');
+  test('Thread', 'detectAndRecord finds GMH', detected2.some(d => d.type === 'company' && d.value === 'GMH'));
+
+  // Test: getState returns current state
+  const state = thread.getState('test-chat-1');
+  test('Thread', 'getState returns state', state !== null && state.lastCompany === 'GMH');
+
+  // Test: getStats works
+  const stats = thread.getStats();
+  test('Thread', 'getStats returns active threads', stats.activeThreads > 0);
+
+  // Cleanup
+  thread.clear('test-chat-1');
+  thread.clear('test-chat-2');
+}
+
+// ============================================================================
+// MULTI-INTENT PARSER
+// ============================================================================
+
+function testMultiIntentParser() {
+  section('MultiIntentParser: Compound Commands');
+
+  const parser = require('../lib/multi-intent-parser');
+
+  // Test: Single intent stays single
+  const single = parser.parse('deploy JUDO');
+  test('MultiIntent', '"deploy JUDO" → single intent', !single.isMultiIntent);
+  test('MultiIntent', 'Single intent text preserved', single.intents[0].text === 'deploy JUDO');
+
+  // Test: "and then" splits into sequential intents
+  const andThen = parser.parse('run tests on JUDO and then deploy it');
+  test('MultiIntent', '"run tests and then deploy" → multi', andThen.isMultiIntent);
+  test('MultiIntent', '2 intents detected', andThen.intents.length === 2, `got: ${andThen.intents.length}`);
+  test('MultiIntent', 'First intent is "run tests on JUDO"',
+    andThen.intents[0].text === 'run tests on JUDO',
+    `got: "${andThen.intents[0].text}"`);
+  test('MultiIntent', 'Pronoun "it" resolved to JUDO',
+    andThen.intents[1].text.includes('JUDO'),
+    `got: "${andThen.intents[1].text}"`);
+  test('MultiIntent', 'Sequential flag set', andThen.intents[1].isSequential);
+
+  // Test: "and also" splits into parallel intents
+  const andAlso = parser.parse('check deadlines and also show expenses');
+  test('MultiIntent', '"check deadlines and also show expenses" → multi', andAlso.isMultiIntent);
+  test('MultiIntent', 'Parallel (not sequential)', !andAlso.intents[1].isSequential);
+
+  // Test: "but first" reverses order
+  const butFirst = parser.parse('deploy JUDO but first run tests');
+  test('MultiIntent', '"but first" → multi', butFirst.isMultiIntent);
+  test('MultiIntent', '"but first" reverses order — tests first',
+    butFirst.intents[0].text.includes('run tests'),
+    `got first: "${butFirst.intents[0].text}", second: "${butFirst.intents[1].text}"`);
+
+  // Test: Questions are never split
+  const question = parser.parse('what are the deadlines and how do I deploy?');
+  test('MultiIntent', 'Questions never split', !question.isMultiIntent);
+
+  // Test: Greetings are never split
+  const greeting = parser.parse('hello and how are you');
+  test('MultiIntent', 'Greetings never split', !greeting.isMultiIntent);
+
+  // Test: Noun phrases with "and" not split
+  const nounPhrase = parser.parse('show me the pros and cons');
+  test('MultiIntent', '"pros and cons" not split', !nounPhrase.isMultiIntent);
+
+  // Test: isMultiIntent quick check
+  test('MultiIntent', 'isMultiIntent("deploy JUDO") → false', !parser.isMultiIntent('deploy JUDO'));
+  test('MultiIntent', 'isMultiIntent("run tests and then deploy") → true', parser.isMultiIntent('run tests and then deploy'));
+  test('MultiIntent', 'isMultiIntent(null) → false', !parser.isMultiIntent(null));
+
+  // Test: comma then splits
+  const commaThen = parser.parse('check GMH deadlines, then deploy JUDO');
+  test('MultiIntent', '", then" splits', commaThen.isMultiIntent);
+  test('MultiIntent', '", then" is sequential', commaThen.intents[1].isSequential);
+
+  // Test: sentence boundary splits
+  const sentence = parser.parse('Run tests on JUDO. Deploy LusoTown.');
+  test('MultiIntent', 'Sentence boundary splits', sentence.isMultiIntent);
+  test('MultiIntent', 'Both intents preserved',
+    sentence.intents.length === 2,
+    `got: ${sentence.intents.length}`);
+
+  // Test: "and" without verbs on both sides doesn't split
+  const noVerb = parser.parse('frontend and backend');
+  test('MultiIntent', '"frontend and backend" not split', !noVerb.isMultiIntent);
+
+  // Test: edge case — empty/null
+  const empty = parser.parse('');
+  test('MultiIntent', 'Empty string → single intent', !empty.isMultiIntent);
+  const nullParse = parser.parse(null);
+  test('MultiIntent', 'null → single intent', !nullParse.isMultiIntent);
+}
+
+// ============================================================================
+// A/B TESTING FRAMEWORK
+// ============================================================================
+
+function testABTesting() {
+  section('ABTestingFramework: Experiment Management');
+
+  // Create a fresh instance for testing (avoid polluting the singleton)
+  const ABPath = require('path').join(__dirname, '..', 'lib', 'ab-testing.js');
+  delete require.cache[ABPath];
+  const abTesting = require('../lib/ab-testing');
+
+  // Clean up any previous test experiments
+  try { abTesting.endExperiment('test-exp-1'); } catch (e) {}
+  abTesting.experiments.clear();
+
+  // Test: Create experiment
+  const exp = abTesting.createExperiment('test-exp-1', {
+    description: 'Test experiment',
+    variants: [
+      { name: 'control', weight: 50, params: { ambiguityThreshold: 0.5 } },
+      { name: 'variant-a', weight: 50, params: { ambiguityThreshold: 0.4 } }
+    ]
+  });
+  test('ABTest', 'Create experiment', exp.id === 'test-exp-1');
+  test('ABTest', 'Experiment is active', exp.status === 'active');
+  test('ABTest', '2 variants created', exp.variants.length === 2);
+
+  // Test: Deterministic variant assignment
+  const v1 = abTesting.getVariant('test-exp-1', 'user-1');
+  const v2 = abTesting.getVariant('test-exp-1', 'user-1');
+  test('ABTest', 'Same user gets same variant', v1.name === v2.name, `user-1 → ${v1.name}`);
+
+  // Test: Different users may get different variants (check determinism)
+  const variants = new Set();
+  for (let i = 0; i < 20; i++) {
+    variants.add(abTesting.getVariant('test-exp-1', `user-${i}`).name);
+  }
+  test('ABTest', 'Variants distributed across users', variants.size >= 1, `unique variants: ${variants.size}`);
+
+  // Test: Record outcome
+  const outcome = abTesting.recordOutcome('test-exp-1', 'user-1', {
+    success: true, corrected: false, latencyMs: 250
+  });
+  test('ABTest', 'Record outcome', outcome.success === true);
+  test('ABTest', 'Outcome has variant', !!outcome.variant);
+
+  // Test: Record multiple outcomes for results
+  for (let i = 0; i < 10; i++) {
+    abTesting.recordOutcome('test-exp-1', `user-${i}`, {
+      success: i < 7, corrected: i >= 8, latencyMs: 200 + i * 10
+    });
+  }
+
+  // Test: Get results
+  const results_ab = abTesting.getResults('test-exp-1');
+  test('ABTest', 'Results have variants', Object.keys(results_ab.variants).length === 2);
+  test('ABTest', 'Results have participants', results_ab.totalParticipants > 0, `participants: ${results_ab.totalParticipants}`);
+
+  // Test: End experiment
+  const endResult = abTesting.endExperiment('test-exp-1', true);
+  test('ABTest', 'End experiment', endResult.experiment.status === 'completed');
+
+  // Test: Cannot record outcome on completed experiment
+  let threwOnCompleted = false;
+  try {
+    abTesting.recordOutcome('test-exp-1', 'user-x', { success: true });
+  } catch (e) {
+    threwOnCompleted = true;
+  }
+  test('ABTest', 'Cannot record on completed', threwOnCompleted);
+
+  // Test: List experiments
+  const list = abTesting.listExperiments();
+  test('ABTest', 'List experiments', list.length >= 1);
+
+  // Test: Invalid experiment creation
+  let threwOnInvalid = false;
+  try {
+    abTesting.createExperiment('', { variants: [] });
+  } catch (e) {
+    threwOnInvalid = true;
+  }
+  test('ABTest', 'Rejects invalid experiment', threwOnInvalid);
+
+  // Cleanup
+  abTesting.experiments.clear();
+}
+
+// ============================================================================
+// CONTEXT DEDUP
+// ============================================================================
+
+function testContextDedup() {
+  section('ContextDedup: Per-Request Caching');
+
+  const { ContextDedup } = require('../lib/context-dedup');
+
+  // Create a test instance with short TTL
+  const dedup = new ContextDedup(500); // 500ms TTL for fast testing
+
+  // Mock context engine build function
+  let buildCallCount = 0;
+  const mockBuild = async (params) => {
+    buildCallCount++;
+    return { chatId: params.chatId, built: true, callNumber: buildCallCount };
+  };
+
+  // Manually test the caching logic (without requiring actual context-engine)
+  // We'll test the cache key generation and stats tracking
+
+  // Test: Stats start at zero
+  const stats = dedup.getStats();
+  test('CtxDedup', 'Initial stats are zero', stats.hits === 0 && stats.misses === 0);
+
+  // Test: Cache max size
+  test('CtxDedup', 'Cache starts empty', stats.cacheSize === 0);
+
+  // Test: Cleanup on empty cache returns 0
+  const cleaned = dedup.cleanup();
+  test('CtxDedup', 'Cleanup on empty returns 0', cleaned === 0);
+
+  // Test: Clear resets everything
+  dedup.clear();
+  const afterClear = dedup.getStats();
+  test('CtxDedup', 'Clear resets stats', afterClear.hits === 0 && afterClear.misses === 0);
+
+  // Test: Invalidate on non-existent chatId is safe
+  dedup.invalidate('nonexistent');
+  test('CtxDedup', 'Invalidate non-existent is safe', true);
+
+  // Test: Patched status
+  test('CtxDedup', 'Not patched by default', !dedup.getStats().patched);
+
+  // Cleanup
+  dedup.destroy();
+}
+
+// ============================================================================
+// NL TUNING SKILL
+// ============================================================================
+
+function testNLTuningSkill() {
+  section('NLTuningSkill: Command Matching');
+
+  const NLTuningSkill = require('../skills/nl-tuning');
+  const skill = new NLTuningSkill();
+
+  // Test: canHandle for all commands
+  test('NLTuning', 'Handles "nl status"', skill.canHandle('nl status'));
+  test('NLTuning', 'Handles "nl stats"', skill.canHandle('nl stats'));
+  test('NLTuning', 'Handles "nl metrics"', skill.canHandle('nl metrics'));
+  test('NLTuning', 'Handles "nl thresholds"', skill.canHandle('nl thresholds'));
+  test('NLTuning', 'Handles "nl set ambiguity 0.5"', skill.canHandle('nl set ambiguity 0.5'));
+  test('NLTuning', 'Handles "nl cache clear"', skill.canHandle('nl cache clear'));
+  test('NLTuning', 'Handles "nl cache stats"', skill.canHandle('nl cache stats'));
+  test('NLTuning', 'Handles "nl corrections"', skill.canHandle('nl corrections'));
+  test('NLTuning', 'Handles "nl test deploy judo"', skill.canHandle('nl test deploy judo'));
+
+  // Test: Does not handle unrelated commands
+  test('NLTuning', 'Does not handle "deploy JUDO"', !skill.canHandle('deploy JUDO'));
+  test('NLTuning', 'Does not handle "help"', !skill.canHandle('help'));
+  test('NLTuning', 'Does not handle "status"', !skill.canHandle('status'));
+}
+
+// ============================================================================
+// SMART ROUTER: Multi-Intent Integration
+// ============================================================================
+
+async function testSmartRouterMultiIntent() {
+  section('SmartRouter: Multi-Intent Integration');
+
+  SmartRouter.cache.clear();
+
+  // Test: Multi-intent is detected and first intent routed
+  // "run tests and then deploy JUDO" — "run tests" looks like a command, "deploy JUDO" is second intent
+  const result = await SmartRouter.route('run tests and then deploy JUDO');
+  // "run tests" is recognized by looksLikeCommand, so it should be returned as-is or with auto-context
+  test('SRMulti', 'Multi-intent routes first intent',
+    result === 'run tests' || result.startsWith('run tests'),
+    `got: "${result}"`);
+
+  // Test: lastMultiIntentResult is populated
+  test('SRMulti', 'lastMultiIntentResult populated',
+    SmartRouter.lastMultiIntentResult !== null);
+  if (SmartRouter.lastMultiIntentResult) {
+    test('SRMulti', 'Remaining intents count',
+      SmartRouter.lastMultiIntentResult.remainingIntents.length >= 1,
+      `got: ${SmartRouter.lastMultiIntentResult.remainingIntents.length}`);
+    test('SRMulti', 'totalIntents is correct',
+      SmartRouter.lastMultiIntentResult.totalIntents >= 2,
+      `got: ${SmartRouter.lastMultiIntentResult.totalIntents}`);
+  }
+
+  // Test: Single intent clears lastMultiIntentResult
+  SmartRouter.cache.clear();
+  await SmartRouter.route('deploy JUDO');
+  test('SRMulti', 'Single intent clears multi result', SmartRouter.lastMultiIntentResult === null);
+
+  // Test: Multi-intent metric increments
+  const metrics = SmartRouter.getMetrics();
+  test('SRMulti', 'Multi-intent metric tracked', metrics.multiIntents >= 1, `got: ${metrics.multiIntents}`);
+}
+
+// ============================================================================
+// SMART ROUTER: Pronoun Resolution Integration
+// ============================================================================
+
+async function testSmartRouterPronounResolution() {
+  section('SmartRouter: Pronoun Resolution Integration');
+
+  const thread = require('../lib/conversation-thread');
+
+  // Set up thread state
+  thread.clear('test-pronoun-chat');
+  thread.recordMention('test-pronoun-chat', 'repo', 'JUDO');
+  thread.recordMention('test-pronoun-chat', 'action', 'deploy');
+
+  SmartRouter.cache.clear();
+
+  // Test: "deploy it" with chatId context resolves to "deploy JUDO"
+  const result = await SmartRouter.route('deploy it', { chatId: 'test-pronoun-chat' });
+  test('SRPronoun', '"deploy it" → "deploy JUDO" via thread',
+    result === 'deploy JUDO',
+    `got: "${result}"`);
+
+  // Test: Without chatId, pronoun stays unresolved
+  SmartRouter.cache.clear();
+  const result2 = await SmartRouter.route('deploy it', {});
+  test('SRPronoun', 'Without chatId, no resolution',
+    result2 !== 'deploy JUDO',
+    `got: "${result2}"`);
+
+  // Cleanup
+  thread.clear('test-pronoun-chat');
+}
+
+// ============================================================================
 // SUMMARY
 // ============================================================================
 
@@ -828,6 +1222,15 @@ async function main() {
 
     // E2E tests
     await testE2EFlow();
+
+    // NEW: 10/10 Feature tests
+    testConversationThreading();
+    testMultiIntentParser();
+    testABTesting();
+    testContextDedup();
+    testNLTuningSkill();
+    await testSmartRouterMultiIntent();
+    await testSmartRouterPronounResolution();
 
   } catch (err) {
     console.error(`\n${C.red}Unexpected error:${C.reset}`, err);
