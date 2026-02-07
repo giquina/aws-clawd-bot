@@ -208,6 +208,8 @@ class SmartRouter {
 
   looksLikeCommand(msg) {
     const trimmed = msg.trim();
+    const wordCount = trimmed.split(/\s+/).length;
+
     const commandPatterns = [
       // Core commands
       /^(help|status|deadlines|expenses|companies|list repos)/i,
@@ -221,12 +223,35 @@ class SmartRouter {
       /^(summary|receipts|pending|due)/i,
       // Project context commands
       /^(project status|readme|project files|switch to|my repos)/i,
-      // Remote execution commands
+      // Remote execution commands — must be short/structured (≤5 words)
+      // Long natural language like "deploy from github judo to vercel cli" should
+      // fall through to patternMatch() / aiRoute() for proper NLP handling
       /^(run tests|deploy|logs|restart|build|install|exec)/i,
       // Explicit create project command (not "create a feature")
       /^create new project\s+\w+$/i,
+      // Vercel commands
+      /^vercel\s+(deploy|preview|url)/i,
     ];
-    return commandPatterns.some(p => p.test(trimmed));
+
+    const isCommand = commandPatterns.some(p => p.test(trimmed));
+
+    // If message starts with a command verb but is long/complex natural language,
+    // let it fall through to patternMatch() and aiRoute() instead of treating
+    // it as a pre-formed command. Short commands (≤5 words) like "deploy judo"
+    // or "deploy judo to production" pass through as-is.
+    if (isCommand && wordCount > 5) {
+      console.log(`[SmartRouter] Long command-like message (${wordCount} words), routing through NLP: "${trimmed.substring(0, 60)}"`);
+      return false;
+    }
+
+    // Commands mentioning "vercel" need pattern matching to route correctly
+    // e.g. "deploy judo to vercel" doesn't match any skill directly
+    if (isCommand && /\bvercel\b/i.test(trimmed) && !/^vercel\s+(deploy|preview|url)/i.test(trimmed)) {
+      console.log(`[SmartRouter] Vercel-related command, routing through patternMatch: "${trimmed.substring(0, 60)}"`);
+      return false;
+    }
+
+    return isCommand;
   }
 
   patternMatch(msg, context = {}) {
@@ -303,7 +328,21 @@ class SmartRouter {
       { match: /what('?s| is)\s+left(\s+to\s+do)?$/i, command: 'project status' },
       { match: /todo\s+list$/i, command: 'project status' },
 
-      // === REMOTE EXECUTION ===
+      // === VERCEL DEPLOY (must come BEFORE generic deploy to catch "deploy X to vercel") ===
+      // Natural language variants: "deploy from github judo to vercel", "deploy judo to vercel cli directly"
+      { match: /deploy\s+(?:from\s+(?:github|git|repo)\s+)?(\w+)\s+(?:to|on|via)\s+vercel/i, command: (m) => `vercel deploy ${m[1].trim()}` },
+      { match: /vercel\s+(?:cli\s+)?deploy\s+(\S+)/i, command: (m) => `vercel deploy ${m[1].trim()}` },
+      { match: /push\s+(\S+)\s+to\s+vercel/i, command: (m) => `vercel deploy ${m[1].trim()}` },
+      { match: /preview\s+(\S+)\s+on\s+vercel/i, command: (m) => `vercel preview ${m[1].trim()}` },
+      // "deploy from github judo to vercel cli directly judo" — last word is repo name repeated
+      { match: /deploy\s+.*vercel.*\b(\w{3,})$/i, command: (m) => `vercel deploy ${m[1].trim()}` },
+      // Without repo name — uses auto-context
+      { match: /^deploy\s+to\s+vercel/i, command: 'vercel deploy' },
+      { match: /^vercel\s+deploy$/i, command: 'vercel deploy' },
+      { match: /^push\s+to\s+vercel/i, command: 'vercel deploy' },
+      { match: /^deploy\s+(?:this|it)\s+to\s+vercel/i, command: 'vercel deploy' },
+
+      // === REMOTE EXECUTION (generic deploy AFTER vercel-specific patterns) ===
       { match: /run\s+tests?\s+(on\s+)?(.+)/i, command: (m) => `run tests ${m[2].trim()}` },
       { match: /test\s+(.+)/i, command: (m) => `run tests ${m[1].trim()}` },
       { match: /deploy\s+(.+?)(\s+to\s+prod(uction)?)?$/i, command: (m) => `deploy ${m[1].trim()}` },
@@ -311,17 +350,6 @@ class SmartRouter {
       { match: /(check|show|view)\s+logs?\s+(for\s+)?(.+)/i, command: (m) => `logs ${m[3].trim()}` },
       { match: /restart\s+(.+)/i, command: (m) => `restart ${m[1].trim()}` },
       { match: /rebuild\s+(.+)/i, command: (m) => `build ${m[1].trim()}` },
-
-      // === VERCEL DEPLOY ===
-      { match: /deploy\s+(\S+)\s+to\s+vercel/i, command: (m) => `vercel deploy ${m[1].trim()}` },
-      { match: /vercel\s+deploy\s+(\S+)/i, command: (m) => `vercel deploy ${m[1].trim()}` },
-      { match: /push\s+(\S+)\s+to\s+vercel/i, command: (m) => `vercel deploy ${m[1].trim()}` },
-      { match: /preview\s+(\S+)\s+on\s+vercel/i, command: (m) => `vercel preview ${m[1].trim()}` },
-      // Without repo name — uses auto-context
-      { match: /^deploy\s+to\s+vercel/i, command: 'vercel deploy' },
-      { match: /^vercel\s+deploy$/i, command: 'vercel deploy' },
-      { match: /^push\s+to\s+vercel/i, command: 'vercel deploy' },
-      { match: /^deploy\s+(?:this|it)\s+to\s+vercel/i, command: 'vercel deploy' },
 
       // === VOICE COMMANDS ===
       { match: /what\s+(do\s+i\s+)?need\s+to\s+do\s+(for\s+)?(.+)?/i, command: (m) => m[3] ? `project status ${m[3].trim()}` : 'project status' },
